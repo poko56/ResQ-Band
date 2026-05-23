@@ -73,23 +73,6 @@
 
 ---
 
-## 🚀 Getting Started (การติดตั้งและทดสอบเบื้องต้น)
-
-### Prerequisites
-1. ติดตั้ง [VS Code](https://code.visualstudio.com/) และ Extension `PlatformIO`
-2. สมัครบัญชี [Firebase](https://firebase.google.com/) และสร้าง Realtime Database (ตั้งค่า Rules เป็น Test Mode สำหรับทดสอบ)
-
-### Installation
-1. Clone repository นี้:
-   ```bash
-   git clone https://github.com/yourusername/ResQ-Band.git
-   ```
-2. เปิดโฟลเดอร์โปรเจกต์ใน VS Code
-3. เข้าไปที่ไฟล์ `config.h` (ถ้ามี) เพื่อเปลี่ยนการตั้งค่า Wi-Fi และ Firebase Credentials
-4. อัปโหลดโค้ดไปยังบอร์ด ESP32 แต่ละตัวตามโฟลเดอร์ (Wristband, Gateway, Handheld)
-
----
-
 ## 🤝 Contributing
 โปรเจกต์นี้ยินดีรับการปรับปรุงและพัฒนาต่อยอดจากนักพัฒนาทุกท่าน หากพบปัญหาหรือมีข้อเสนอแนะ สามารถเปิด Issue หรือส่ง Pull Request ได้เลยครับ
 
