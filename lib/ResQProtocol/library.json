@@ -1,0 +1,9 @@
+{
+  "name": "ResQProtocol",
+  "version": "0.1.0",
+  "description": "Shared packet structures, CRC helpers and triage logic for the ResQ-Band fleet (Wristband, Gateway, Handheld).",
+  "keywords": ["resq", "lora", "esp-now", "usar"],
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "license": "MIT"
+}
