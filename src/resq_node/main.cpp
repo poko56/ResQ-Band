@@ -33,7 +33,7 @@ void setup() {
   pinMode(PIN_VIBRATION,  OUTPUT);
   pinMode(PIN_BUZZER,     OUTPUT);
   pinMode(PIN_BTN_MODE,   INPUT_PULLUP);
-  pinMode(PIN_BTN_LOCK,   INPUT_PULLUP);
+  pinMode(PIN_BTN_FOUND,  INPUT_PULLUP);
 
   digitalWrite(PIN_LED_STATUS, LOW);
   digitalWrite(PIN_VIBRATION,  LOW);
