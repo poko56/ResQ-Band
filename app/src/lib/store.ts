@@ -43,6 +43,8 @@ interface ResQState {
 
   placeAnchor: (position: LatLng, name?: string) => Anchor;
   removeAnchor: (id: string) => void;
+  renameAnchor: (id: string, name: string) => void;
+  setAnchorPosition: (id: string, position: LatLng) => void;
 
   setPlacementMode: (mode: PlacementMode) => void;
 
@@ -149,9 +151,11 @@ export const useResQ = create<ResQState>((set, get) => ({
   },
 
   placeAnchor: (position, name) => {
-    // Auto-assign next pinIndex 0..3 in placement order
-    const existingCount = Object.keys(get().anchors).length;
-    const pinIndex = existingCount;
+    // Pick lowest free pinIndex in 0..3 so deletes free up slots
+    const used = new Set(Object.values(get().anchors).map((a) => a.pinIndex));
+    let pinIndex = 0;
+    while (used.has(pinIndex) && pinIndex < 4) pinIndex++;
+    if (pinIndex >= 4) pinIndex = 3;   // overflow → overwrite last slot conceptually
     const id = nanoid(6).toUpperCase();
     const anchor: Anchor = {
       id,
@@ -174,6 +178,22 @@ export const useResQ = create<ResQState>((set, get) => ({
       const next = { ...s.anchors };
       delete next[id];
       return { anchors: next };
+    });
+  },
+
+  renameAnchor: (id, name) => {
+    set((s) => {
+      const a = s.anchors[id];
+      if (!a) return s;
+      return { anchors: { ...s.anchors, [id]: { ...a, name } } };
+    });
+  },
+
+  setAnchorPosition: (id, position) => {
+    set((s) => {
+      const a = s.anchors[id];
+      if (!a) return s;
+      return { anchors: { ...s.anchors, [id]: { ...a, position } } };
     });
   },
 
