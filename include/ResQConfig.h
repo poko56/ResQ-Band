@@ -150,20 +150,15 @@
   #define PIN_LORA_RST    5
   #define PIN_LORA_DIO0   4
 
-  #define PIN_LED_STATUS  48   // onboard RGB on most devkitc-1 v1.1
-  #define PIN_LED_LORA    47
+  // Onboard WS2812 RGB on GPIO 48 (devkitc-1 v1.1). Driven via
+  // neopixelWrite() - DO NOT use digitalWrite() on this pin.
+  #define PIN_LED_STATUS  48
   #define PIN_BUZZER      17   // local alarm when no ResQ-Node ack within X
 
   // USB-CDC native (Serial = USB) handled by ARDUINO_USB_CDC_ON_BOOT=1
   #define USB_SERIAL_BAUD     115200
   #define USB_HEARTBEAT_MS    1000
   #define MAIN_NODE_ALARM_MS  10000   // local alarm if no rescuer ack
-
-  // OTA (overridable at build for fork users)
-  #ifndef OTA_GITHUB_RELEASE_URL
-    #define OTA_GITHUB_RELEASE_URL \
-      "https://github.com/poko56/ResQ-Band/releases/latest/download/main_node.bin"
-  #endif
 
 #else
   #error "Define one of DEVICE_TYPE_BAND_NODE / RESQ_PIN / RESQ_NODE / MAIN_NODE"

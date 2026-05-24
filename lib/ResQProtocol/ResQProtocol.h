@@ -18,7 +18,6 @@ namespace ResQ {
 constexpr uint8_t  MAGIC             = 0xA5;
 constexpr uint8_t  PROTOCOL_VERSION  = 2;
 constexpr uint8_t  MAX_HOP_COUNT     = 4;
-constexpr uint16_t OTA_PAYLOAD_BYTES = 240;
 
 // ---- Packet type enum (single byte at offset +1) --------------------------
 enum PacketType : uint8_t {
@@ -33,12 +32,6 @@ enum PacketType : uint8_t {
   // Emergency (uses SOSPacket, distinguished by type)
   PKT_SOS_TAP      = 0x20,  // Band -> Main: 3-tap SOS          (SOSPacket)
   PKT_SOS_FALL     = 0x21,  // Band -> Main: fall detected      (SOSPacket)
-  // OTA chunked transfer (reserved, future)
-  PKT_OTA_BEGIN    = 0xA1,
-  PKT_OTA_DATA     = 0xA2,
-  PKT_OTA_END      = 0xA3,
-  PKT_OTA_ACK      = 0xA4,
-  PKT_OTA_ABORT    = 0xA5,
 };
 
 enum TriageLevel : uint8_t {
@@ -188,24 +181,6 @@ struct __attribute__((packed)) RingAckPacket {
   uint16_t crc16;
 };
 static_assert(sizeof(RingAckPacket) == 10, "RingAckPacket layout drifted");
-
-// ============================================================================
-// OTA (kept from v1, reserved for future)
-// ============================================================================
-struct __attribute__((packed)) OTABeginPayload {
-  char     version[16];
-  uint32_t total_size;
-  uint16_t total_chunks;
-  uint8_t  md5[16];
-  uint8_t  device_type;
-};
-
-struct __attribute__((packed)) OTAChunkHeader {
-  uint8_t  cmd;
-  uint16_t chunk_id;
-  uint16_t total_chunks;
-  uint16_t crc16;
-};
 
 // ============================================================================
 // API

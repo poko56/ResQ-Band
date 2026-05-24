@@ -243,11 +243,6 @@ const char* packet_type_label(PacketType t) {
     case PKT_RING_ACK:     return "RING_ACK";
     case PKT_SOS_TAP:      return "SOS_TAP";
     case PKT_SOS_FALL:     return "SOS_FALL";
-    case PKT_OTA_BEGIN:    return "OTA_BEGIN";
-    case PKT_OTA_DATA:     return "OTA_DATA";
-    case PKT_OTA_END:      return "OTA_END";
-    case PKT_OTA_ACK:      return "OTA_ACK";
-    case PKT_OTA_ABORT:    return "OTA_ABORT";
     default:               return "UNKNOWN";
   }
 }

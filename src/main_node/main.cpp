@@ -67,6 +67,9 @@ static uint32_t g_last_beacon_ms       = 0;
 static uint32_t g_last_dispatch_ms     = 0;
 static uint32_t g_last_usb_hb_ms       = 0;
 static uint32_t g_last_lora_retry_ms   = 0;
+static uint32_t g_last_led_ms          = 0;
+static uint32_t g_last_rx_flash_ms     = 0;
+static uint32_t g_last_tx_flash_ms     = 0;
 static uint32_t g_rx_count             = 0;
 static uint32_t g_rx_dropped           = 0;
 static uint32_t g_sos_pending_until_ms = 0;   // local alarm deadline
@@ -84,6 +87,7 @@ static void   tx_assignment();
 static void   tx_ring_cmd(uint32_t band_id, uint16_t dur_ms, uint16_t freq, uint8_t pat);
 static int    find_or_create_band(uint32_t band_id);
 static void   on_lora_rx(int packet_size);
+static void   update_status_led(uint32_t now);
 static int    compute_score(const BandState& b, uint32_t now_ms);
 static int    pick_dispatch_target(uint32_t now_ms);
 static int    pick_best_pin(const BandState& b);
@@ -120,12 +124,11 @@ void setup() {
   // late host enumeration. Non-blocking - we do not wait for !Serial.
   delay(250);
 
-  pinMode(PIN_LED_STATUS, OUTPUT);
-  pinMode(PIN_LED_LORA,   OUTPUT);
-  pinMode(PIN_BUZZER,     OUTPUT);
-  digitalWrite(PIN_LED_STATUS, LOW);
-  digitalWrite(PIN_LED_LORA,   LOW);
-  digitalWrite(PIN_BUZZER,     LOW);
+  // PIN_LED_STATUS is a WS2812 neopixel - DO NOT pinMode(OUTPUT) + digitalWrite.
+  // Just use neopixelWrite(). First call sets pin mode internally.
+  neopixelWrite(PIN_LED_STATUS, 0, 0, 40);   // boot indicator: dim blue
+  pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
 
   g_main_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
 
@@ -218,9 +221,10 @@ void loop() {
     doc["heap"]     = ESP.getFreeHeap();
     doc["ts"]       = now;
     send_json_event(doc);
-
-    digitalWrite(PIN_LED_STATUS, !digitalRead(PIN_LED_STATUS));
   }
+
+  // --- RGB status LED -------------------------------------------------------
+  update_status_led(now);
 
   // --- Local alarm if SOS unacked too long ----------------------------------
   if (g_sos_pending_until_ms > 0 && now > g_sos_pending_until_ms) {
@@ -271,7 +275,7 @@ static void on_lora_rx(int packet_size) {
   const float snr = LoRa.packetSnr();
 
   uint8_t ptype = ResQ::peek_packet_type(buf, n);
-  digitalWrite(PIN_LED_LORA, HIGH);
+  g_last_rx_flash_ms = millis();
 
   // -- HEARTBEAT / SOS_TAP / SOS_FALL all use SOSPacket --
   if ((ptype == ResQ::PKT_HEARTBEAT ||
@@ -279,11 +283,11 @@ static void on_lora_rx(int packet_size) {
        ptype == ResQ::PKT_SOS_FALL) && n >= sizeof(ResQ::SOSPacket)) {
     ResQ::SOSPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
-    if (!ResQ::verify_sos_packet(pkt)) { g_rx_dropped++; digitalWrite(PIN_LED_LORA, LOW); return; }
+    if (!ResQ::verify_sos_packet(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
 
     int idx = find_or_create_band(pkt.device_id);
-    if (idx < 0) { g_rx_dropped++; digitalWrite(PIN_LED_LORA, LOW); return; }
+    if (idx < 0) { g_rx_dropped++; return; }
     BandState& b = g_bands[idx];
     b.last_heartbeat_ms = millis();
     b.last_packet       = pkt;
@@ -312,7 +316,7 @@ static void on_lora_rx(int packet_size) {
   else if (ptype == ResQ::PKT_PIN_SIGHTING && n >= sizeof(ResQ::PinSightingPacket)) {
     ResQ::PinSightingPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
-    if (!ResQ::verify_pin_sighting(pkt)) { g_rx_dropped++; digitalWrite(PIN_LED_LORA, LOW); return; }
+    if (!ResQ::verify_pin_sighting(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
 
     if (pkt.pin_index < TDMA_MAX_PINS) {
@@ -355,7 +359,7 @@ static void on_lora_rx(int packet_size) {
   else if (ptype == ResQ::PKT_FOUND && n >= sizeof(ResQ::FoundPacket)) {
     ResQ::FoundPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
-    if (!ResQ::verify_found(pkt)) { g_rx_dropped++; digitalWrite(PIN_LED_LORA, LOW); return; }
+    if (!ResQ::verify_found(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
 
     int bidx = find_or_create_band(pkt.target_band_id);
@@ -382,7 +386,7 @@ static void on_lora_rx(int packet_size) {
   else if (ptype == ResQ::PKT_RING_ACK && n >= sizeof(ResQ::RingAckPacket)) {
     ResQ::RingAckPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
-    if (!ResQ::verify_ring_ack(pkt)) { g_rx_dropped++; digitalWrite(PIN_LED_LORA, LOW); return; }
+    if (!ResQ::verify_ring_ack(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
 
     JsonDocument out;
@@ -396,7 +400,6 @@ static void on_lora_rx(int packet_size) {
     g_rx_dropped++;
   }
 
-  digitalWrite(PIN_LED_LORA, LOW);
   LoRa.receive();
 }
 
@@ -414,6 +417,7 @@ static void tx_beacon() {
     LoRa.endPacket();
   }
   LoRa.receive();
+  g_last_tx_flash_ms = millis();
 
   JsonDocument doc;
   doc["t"]      = "beacon";
@@ -453,6 +457,7 @@ static void tx_assignment() {
     LoRa.endPacket();
   }
   LoRa.receive();
+  g_last_tx_flash_ms = millis();
 
   b.is_assigned      = true;
   b.assigned_at_ms   = millis();
@@ -482,6 +487,7 @@ static void tx_ring_cmd(uint32_t band_id, uint16_t dur_ms, uint16_t freq, uint8_
     LoRa.endPacket();
   }
   LoRa.receive();
+  g_last_tx_flash_ms = millis();
 }
 
 // ============================================================================
@@ -644,4 +650,60 @@ static void handle_serial_command(const char* line, size_t len) {
     r["c"]   = cmd;
     send_json_event(r);
   }
+}
+
+// ============================================================================
+// RGB status LED  (onboard WS2812 on ESP32-S3 devkitc-1)
+// ----------------------------------------------------------------------------
+// Color encodes the most urgent device state; brief flashes overlay LoRa
+// RX (blue) and TX (cyan) activity so the operator can tell traffic is
+// flowing even without opening the dashboard.
+//
+//   solid blue dim     | boot, USB CDC alive but loop not started
+//   slow green breath  | healthy idle, LoRa ready, no work
+//   slow orange breath | LoRa SX1278 not responding (check wiring)
+//   pulsing red        | SOS pending - waiting for ResQ-Node to ack
+//   strobe red bright  | local alarm - no ack in MAIN_NODE_ALARM_MS
+//   blue flash 80 ms   | LoRa RX packet
+//   cyan flash 80 ms   | LoRa TX packet
+//
+// neopixelWrite() is non-blocking and self-initializes the GPIO on first call.
+// ============================================================================
+static inline uint8_t breath(uint32_t now_ms, uint32_t period_ms, uint8_t lo, uint8_t hi) {
+  // Triangle-wave breathing, integer math (no sinf to keep ISR-safe-ish).
+  uint32_t phase = now_ms % period_ms;
+  uint32_t half  = period_ms / 2;
+  uint32_t v     = (phase < half) ? phase : (period_ms - phase);
+  return (uint8_t)(lo + (hi - lo) * v / half);
+}
+
+static void update_status_led(uint32_t now) {
+  if (now - g_last_led_ms < 33) return;   // ~30 fps update cap
+  g_last_led_ms = now;
+
+  uint8_t r = 0, g = 0, b = 0;
+
+  // ---- base color (priority order) ----
+  if (g_local_alarm_active) {
+    // Bright red strobe at 5 Hz
+    bool on = ((now / 100) & 1);
+    r = on ? 200 : 0;
+  } else if (g_sos_pending_until_ms > 0) {
+    // Pulsing red - SOS in flight
+    r = breath(now, 600, 40, 180);
+  } else if (!g_lora_ready) {
+    // Slow orange breath - radio missing, retrying
+    uint8_t v = breath(now, 2000, 8, 50);
+    r = v;
+    g = v / 4;
+  } else {
+    // Healthy idle - dim green slow breath
+    g = breath(now, 3000, 2, 18);
+  }
+
+  // ---- activity overlays ----
+  if (now - g_last_tx_flash_ms < 80) { r = 0; g = 40; b = 40; }   // TX: cyan flash
+  if (now - g_last_rx_flash_ms < 80) { r = 0; g = 10; b = 80; }   // RX: blue flash
+
+  neopixelWrite(PIN_LED_STATUS, r, g, b);
 }
