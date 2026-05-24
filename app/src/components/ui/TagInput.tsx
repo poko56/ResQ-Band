@@ -1,11 +1,5 @@
 "use client";
 
-// ----------------------------------------------------------------------------
-// TagInput - chip-style multi-value input. Users type a value and press Enter
-// or comma to add it. Backspace on empty input removes the last tag.
-// Used for medical lists (allergies, conditions, medications).
-// ----------------------------------------------------------------------------
-
 import { useState, KeyboardEvent } from "react";
 
 interface Props {
@@ -15,12 +9,12 @@ interface Props {
   onChange: (next: string[]) => void;
   placeholder?: string;
   suggestions?: string[];
-  chipColor?: string;     // tailwind bg class, e.g. "bg-amber-700"
+  chipColor?: string;   // tailwind classes for chip bg+text
 }
 
 export function TagInput(props: Props) {
   const [draft, setDraft] = useState("");
-  const chip = props.chipColor ?? "bg-slate-700";
+  const chip = props.chipColor ?? "bg-app-raised text-app-text";
 
   function commit(text: string) {
     const t = text.trim();
@@ -29,7 +23,6 @@ export function TagInput(props: Props) {
     props.onChange([...props.values, t]);
     setDraft("");
   }
-
   function onKey(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
@@ -38,7 +31,6 @@ export function TagInput(props: Props) {
       props.onChange(props.values.slice(0, -1));
     }
   }
-
   function remove(i: number) {
     const next = props.values.slice();
     next.splice(i, 1);
@@ -47,24 +39,12 @@ export function TagInput(props: Props) {
 
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400">
-        {props.label}
-      </span>
-      <div className="flex flex-wrap gap-1.5 rounded border border-panel-border bg-panel px-2 py-1.5 focus-within:border-emerald-500">
+      <span className="field-label">{props.label}</span>
+      <div className="flex flex-wrap gap-1 bg-app-input border border-app-divider px-1.5 py-1 focus-within:border-accent min-h-[28px] rounded-sm">
         {props.values.map((v, i) => (
-          <span
-            key={`${v}-${i}`}
-            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs ${chip} text-white`}
-          >
+          <span key={`${v}-${i}`} className={`inline-flex items-center gap-1 px-1.5 text-2xs uppercase tracking-wider font-semibold ${chip}`}>
             {v}
-            <button
-              type="button"
-              onClick={() => remove(i)}
-              className="text-white/70 hover:text-white"
-              aria-label={`ลบ ${v}`}
-            >
-              ×
-            </button>
+            <button type="button" onClick={() => remove(i)} className="opacity-70 hover:opacity-100" aria-label={`remove ${v}`}>×</button>
           </span>
         ))}
         <input
@@ -73,12 +53,12 @@ export function TagInput(props: Props) {
           onKeyDown={onKey}
           onBlur={() => draft && commit(draft)}
           placeholder={props.values.length === 0 ? props.placeholder : ""}
-          className="min-w-[120px] flex-1 bg-transparent px-1 text-sm text-slate-100 outline-none"
+          className="min-w-[120px] flex-1 bg-transparent text-sm text-app-text outline-none px-1"
         />
       </div>
       {props.suggestions && props.suggestions.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
-          <span className="text-slate-500">เลือกด่วน:</span>
+        <div className="mt-1 flex flex-wrap gap-1 text-2xs">
+          <span className="text-app-muted">quick add:</span>
           {props.suggestions
             .filter((s) => !props.values.includes(s))
             .map((s) => (
@@ -86,14 +66,14 @@ export function TagInput(props: Props) {
                 key={s}
                 type="button"
                 onClick={() => commit(s)}
-                className="rounded border border-slate-700 px-1.5 py-0.5 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                className="px-1 text-app-muted hover:text-app-text hover:bg-app-raised border border-app-divider"
               >
                 + {s}
               </button>
             ))}
         </div>
       )}
-      {props.hint && <span className="mt-1 block text-[11px] text-slate-500">{props.hint}</span>}
+      {props.hint && <span className="mt-1 block text-2xs text-app-muted">{props.hint}</span>}
     </label>
   );
 }

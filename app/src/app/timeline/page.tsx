@@ -1,48 +1,57 @@
 "use client";
 
 import { TopBar } from "@/components/ui/TopBar";
+import { HubStatusBanner } from "@/components/Hub/HubStatusBanner";
 import { useResQ } from "@/lib/store";
 
-const TYPE_LABELS: Record<string, { th: string; color: string }> = {
-  anchor_placed: { th: "วางเสา", color: "bg-orange-500" },
-  wristband_registered: { th: "ลงทะเบียน", color: "bg-sky-500" },
-  sos_received: { th: "SOS", color: "bg-triage-red" },
-  lost_contact: { th: "ขาดการติดต่อ", color: "bg-amber-500" },
-  vitals_critical: { th: "ชีพจรวิกฤต", color: "bg-triage-red" },
-  found_by_handheld: { th: "เจอตัว", color: "bg-emerald-500" },
-  marked_rescued: { th: "กู้สำเร็จ", color: "bg-sky-500" },
+const TYPE_META: Record<string, { th: string; bg: string }> = {
+  hub_connected:         { th: "hub up",        bg: "bg-status-info" },
+  hub_disconnected:      { th: "hub down",      bg: "bg-app-muted" },
+  anchor_placed:         { th: "anchor",        bg: "bg-status-warn" },
+  wristband_registered:  { th: "register",      bg: "bg-accent" },
+  sos_received:          { th: "sos",           bg: "bg-triage-red" },
+  fall_received:         { th: "fall",          bg: "bg-triage-red" },
+  lost_contact:          { th: "lost",          bg: "bg-status-warn" },
+  vitals_critical:       { th: "critical",      bg: "bg-triage-red" },
+  assignment_dispatched: { th: "dispatch",      bg: "bg-accent" },
+  found_by_handheld:     { th: "found",         bg: "bg-status-ok" },
+  marked_rescued:        { th: "rescued",       bg: "bg-status-ok" },
+  manual_priority:       { th: "boost",         bg: "bg-status-warn" },
 };
 
 export default function TimelinePage() {
   const timeline = useResQ((s) => s.timeline);
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-app-bg">
       <TopBar />
-      <main className="flex-1 overflow-y-auto p-5">
-        <h2 className="mb-4 text-lg font-bold">Timeline เหตุการณ์ทั้งหมด ({timeline.length})</h2>
+      <HubStatusBanner />
 
+      <div className="panel-header justify-between">
+        <span>Event log</span>
+        <span className="font-mono text-app-dim normal-case">{timeline.length} events</span>
+      </div>
+
+      <main className="flex-1 overflow-y-auto">
         {timeline.length === 0 ? (
-          <div className="rounded border border-dashed border-panel-border p-6 text-center text-sm text-slate-500">
-            ยังไม่มีเหตุการณ์
+          <div className="grid h-full place-items-center text-xs text-app-muted">
+            no events yet
           </div>
         ) : (
-          <ol className="space-y-2">
+          <ol className="divide-y divide-app-divider">
             {timeline.map((ev) => {
-              const meta = TYPE_LABELS[ev.type] ?? { th: ev.type, color: "bg-slate-500" };
+              const meta = TYPE_META[ev.type] ?? { th: ev.type, bg: "bg-app-muted" };
               return (
-                <li key={ev.id} className="flex items-start gap-3 rounded border border-panel-border bg-panel-soft p-3">
-                  <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase text-white ${meta.color}`}>
-                    {meta.th}
+                <li key={ev.id} className="row-hover grid grid-cols-[80px_140px_1fr_auto] items-center gap-3 px-3 py-1.5">
+                  <span className={`pill ${meta.bg}`}>{meta.th}</span>
+                  <span className="font-mono text-2xs text-app-muted">
+                    {new Date(ev.ts).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                   </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm">{ev.message}</div>
-                    <div className="text-xs text-slate-500">
-                      {new Date(ev.ts).toLocaleString("th-TH")}
-                      {ev.wristbandId && <span className="ml-2 font-mono">· wb={ev.wristbandId}</span>}
-                      {ev.anchorId && <span className="ml-2 font-mono">· anchor={ev.anchorId}</span>}
-                    </div>
-                  </div>
+                  <span className="text-xs text-app-text truncate">{ev.message}</span>
+                  <span className="font-mono text-2xs text-app-muted">
+                    {ev.wristbandId && <span>wb={ev.wristbandId}</span>}
+                    {ev.anchorId    && <span>· anc={ev.anchorId}</span>}
+                  </span>
                 </li>
               );
             })}

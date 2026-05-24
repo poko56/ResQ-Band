@@ -24,10 +24,10 @@ export function classifyTriage(v: Vitals): TriageLevel {
 }
 
 export const TRIAGE_COLORS: Record<TriageLevel, string> = {
-  green: "#22c55e",
-  yellow: "#eab308",
-  red: "#ef4444",
-  black: "#1f2937",
+  green:  "#5fb878",
+  yellow: "#d4a235",
+  red:    "#d04545",
+  black:  "#2a2a2a",
 };
 
 export const TRIAGE_LABELS_TH: Record<TriageLevel, string> = {

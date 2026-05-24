@@ -7,16 +7,16 @@ import { useResQ } from "@/lib/store";
 const LiveMap = dynamic(() => import("./LiveMap"), {
   ssr: false,
   loading: () => (
-    <div className="grid h-full place-items-center text-sm text-slate-500">กำลังโหลดแผนที่...</div>
+    <div className="grid h-full place-items-center text-sm text-app-muted">loading map…</div>
   ),
 });
 
 const MAX_PINS = 4;
 
 export function MapPanel() {
-  const placementMode = useResQ((s) => s.placementMode);
+  const placementMode    = useResQ((s) => s.placementMode);
   const setPlacementMode = useResQ((s) => s.setPlacementMode);
-  const anchors = useResQ((s) => s.anchors);
+  const anchors          = useResQ((s) => s.anchors);
 
   const slots = Array.from({ length: MAX_PINS }, (_, i) => {
     return Object.values(anchors).find((a) => a.pinIndex === i);
@@ -28,53 +28,50 @@ export function MapPanel() {
     <div className="relative h-full w-full">
       <LiveMap />
 
-      <div className="absolute right-3 top-3 z-[1000] flex w-[220px] flex-col gap-2">
-        <button
-          onClick={() => setPlacementMode(placementMode === "anchor" ? "none" : "anchor")}
-          className={`rounded px-3 py-2 text-xs font-bold shadow-lg ${
-            placementMode === "anchor"
-              ? "bg-orange-500 text-white"
-              : "bg-panel-soft text-slate-200 hover:bg-slate-700"
-          }`}
-        >
-          {placementMode === "anchor" ? "✕ ยกเลิก" : "+ วางเสา Pin"}
-        </button>
+      {/* Floating control panel - Premiere overlay */}
+      <div className="absolute right-3 top-3 z-[1000] w-[240px] panel shadow-panel">
+        <div className="panel-header justify-between">
+          <span>Anchors</span>
+          <span className="font-mono text-app-dim normal-case">
+            <span className={onlineCount === placedCount && placedCount > 0 ? "text-status-ok" : "text-status-warn"}>{onlineCount}</span>
+            <span className="text-app-muted">/{placedCount}/{MAX_PINS}</span>
+          </span>
+        </div>
+        <div className="p-2">
+          <button
+            onClick={() => setPlacementMode(placementMode === "anchor" ? "none" : "anchor")}
+            className={`w-full h-7 text-xs font-semibold uppercase tracking-wider rounded-sm ${
+              placementMode === "anchor"
+                ? "bg-status-warn text-app-bg"
+                : "bg-accent-pressed text-white hover:bg-accent"
+            }`}
+          >
+            {placementMode === "anchor" ? "✕  Cancel placement" : "+  Place anchor"}
+          </button>
 
-        <div className="rounded border border-panel-border bg-panel-soft p-2 shadow-lg">
-          <div className="mb-1.5 flex items-center justify-between text-[11px] uppercase text-slate-400">
-            <span>เสา ResQ-Pin</span>
-            <span className="font-mono">
-              <span className={onlineCount === placedCount && placedCount > 0 ? "text-emerald-400" : "text-orange-400"}>{onlineCount}</span>
-              <span className="text-slate-500">/{placedCount}/{MAX_PINS}</span>
-            </span>
-          </div>
-          <div className="grid grid-cols-4 gap-1">
+          <div className="mt-2 grid grid-cols-4 gap-1">
             {slots.map((a, i) => (
               <div
                 key={i}
-                className={`grid h-8 place-items-center rounded text-[11px] font-bold ${
+                className={`grid h-7 place-items-center text-xs font-mono ${
                   !a
-                    ? "border border-dashed border-slate-600 text-slate-600"
+                    ? "border border-dashed border-app-border text-app-muted"
                     : a.online
-                      ? "bg-emerald-700 text-white"
-                      : "bg-orange-700 text-white"
+                      ? "bg-status-ok text-app-bg font-bold"
+                      : "bg-status-warn text-app-bg font-bold"
                 }`}
-                title={a ? `${a.name} (${a.online ? "online" : "offline"})` : `Slot ${i} ว่าง`}
+                title={a ? `${a.name} - ${a.online ? "online" : "offline"}` : `slot ${i} empty`}
               >
                 {i}
               </div>
             ))}
           </div>
-          {placedCount < MAX_PINS && (
-            <p className="mt-1.5 text-[10px] text-amber-400">
-              แนะนำให้วางครบ 4 ตัวเพื่อ coverage รอบพื้นที่
-            </p>
-          )}
+
           <Link
             href="/setup"
-            className="mt-2 block rounded bg-panel px-2 py-1 text-center text-[11px] text-slate-300 hover:bg-slate-700"
+            className="mt-2 block text-center text-2xs uppercase tracking-wider text-app-dim hover:text-accent border-t border-app-border pt-2"
           >
-            จัดการเสาเต็มรูปแบบ →
+            Manage anchors →
           </Link>
         </div>
       </div>

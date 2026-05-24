@@ -4,66 +4,156 @@
 
 @import "leaflet/dist/leaflet.css";
 
-html,
-body,
-#__next {
+/* ============================================================================
+   Premiere Pro-inspired workstation styling
+   ========================================================================== */
+
+:root {
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html, body, #__next {
   height: 100%;
-  background-color: #0f172a;
-  color: #e2e8f0;
+  background: #1a1a1a;
+  color: #d4d4d4;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "Noto Sans Thai", sans-serif;
 }
 
-body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", sans-serif;
+/* Mono numerics - tabular figures so columns of HR / SpO2 line up */
+.mono, code, kbd, samp, .font-mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "zero" 1, "tnum" 1;
 }
 
-.leaflet-container {
-  background: #1e293b;
-  font-family: inherit;
+::selection {
+  background: rgba(93, 173, 226, 0.35);
+  color: #ffffff;
 }
 
-.leaflet-tile-pane {
-  filter: brightness(0.85) contrast(1.1);
+/* ----- Scrollbars: thin, dark, in-panel ----- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #1a1a1a; }
+::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border: 2px solid #1a1a1a;
+  border-radius: 0;
 }
+::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+::-webkit-scrollbar-corner { background: #1a1a1a; }
+
+/* ----- Leaflet: match the dark workstation ----- */
+.leaflet-container { background: #181818; font-family: inherit; }
+.leaflet-tile-pane { filter: brightness(0.65) contrast(1.05) saturate(0.6); }
+.leaflet-control-zoom a {
+  background: #2d2d2d !important;
+  color: #d4d4d4 !important;
+  border: 1px solid #0e0e0e !important;
+  border-radius: 0 !important;
+  width: 24px !important;
+  height: 24px !important;
+  line-height: 24px !important;
+  font-size: 14px !important;
+}
+.leaflet-control-zoom a:hover { background: #3a3a3a !important; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: #2d2d2d;
+  color: #d4d4d4;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px #0e0e0e;
+}
+.leaflet-control-attribution {
+  background: rgba(0, 0, 0, 0.5) !important;
+  color: #909090 !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a { color: #5dade2 !important; }
+
+/* ============================================================================
+   Component classes (Premiere panel grammar)
+   ========================================================================== */
+
+@layer components {
+  .panel { @apply bg-app-panel border border-app-border; }
+  .panel-header {
+    @apply flex items-center h-7 px-2.5 bg-app-surface text-2xs font-semibold uppercase tracking-wider text-app-dim border-b border-app-divider;
+  }
+  .divider-h { @apply border-t border-app-divider; }
+  .divider-v { @apply border-l border-app-divider; }
+
+  .tab {
+    @apply inline-flex items-center h-7 px-3 text-2xs font-semibold uppercase tracking-wider text-app-dim hover:text-app-text hover:bg-app-raised cursor-pointer border-r border-app-divider transition-colors;
+  }
+  .tab.is-active { @apply text-white bg-app-bg; }
+
+  .btn {
+    @apply inline-flex items-center justify-center h-6 px-2.5 text-xs font-medium text-app-text bg-app-raised hover:bg-app-active border border-app-border rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-sm { @apply h-5 px-2 text-2xs; }
+  .btn-accent { @apply text-white bg-accent-pressed hover:bg-accent border-accent-pressed; }
+  .btn-danger { @apply text-white bg-triage-red hover:brightness-110 border-triage-red; }
+  .btn-ghost  { @apply bg-transparent border-transparent hover:bg-app-raised; }
+
+  .field {
+    @apply block w-full h-7 px-2 text-sm bg-app-input border border-app-divider text-app-text outline-none rounded-sm focus:border-accent;
+  }
+  .field-label {
+    @apply block mb-1 text-2xs font-semibold uppercase tracking-wider text-app-muted;
+  }
+
+  .stat {
+    @apply flex flex-col items-center justify-center bg-app-panel border border-app-border px-2 py-1.5;
+  }
+  .stat-value { @apply font-mono text-lg font-semibold leading-none; }
+  .stat-label { @apply text-2xs uppercase tracking-wider text-app-muted mt-1; }
+
+  .pill {
+    @apply inline-flex items-center h-4 px-1.5 text-2xs font-bold uppercase tracking-wider text-white;
+  }
+}
+
+/* ============================================================================
+   Domain icons (map markers / list avatars)
+   ========================================================================== */
 
 .resq-pin {
-  width: 24px;
-  height: 24px;
-  border-radius: 9999px;
-  border: 2px solid white;
-  box-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  border: 1px solid rgba(255,255,255,0.4);
+  background: #3a3a3a;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 10px;
+  color: white;
+  text-transform: uppercase;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.resq-anchor {
+  width: 26px;
+  height: 26px;
+  border-radius: 2px;
+  border: 1px solid #d4a235;
+  background: #2d2d2d;
   display: grid;
   place-items: center;
   font-weight: 700;
   font-size: 11px;
-  color: white;
+  color: #d4a235;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
-.resq-anchor {
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
-  border: 2px solid #f97316;
-  background: #1e293b;
-  box-shadow: 0 0 12px rgba(249, 115, 22, 0.5);
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 12px;
-  color: #f97316;
-}
-
-.pulse-sos {
-  animation: pulse-ring 1.5s ease-out infinite;
-}
-
+.pulse-sos { animation: pulse-ring 1.5s ease-out infinite; }
 @keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-  }
-  70% {
-    box-shadow: 0 0 0 18px rgba(239, 68, 68, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-  }
+  0%   { box-shadow: 0 0 0 0 rgba(208, 69, 69, 0.7); }
+  70%  { box-shadow: 0 0 0 14px rgba(208, 69, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(208, 69, 69, 0); }
 }
+
+.row-hover { transition: background-color 80ms linear; }
+.row-hover:hover { background: #2d2d2d; }

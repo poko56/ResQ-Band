@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#ef4444",
+  themeColor: "#1a1a1a",
   width: "device-width",
   initialScale: 1,
 };
@@ -16,7 +16,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th">
-      <body className="h-screen overflow-hidden bg-panel text-slate-100">{children}</body>
+      <body className="h-screen overflow-hidden bg-app-bg text-app-text">{children}</body>
     </html>
   );
 }

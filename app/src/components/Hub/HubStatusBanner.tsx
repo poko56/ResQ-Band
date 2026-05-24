@@ -6,27 +6,32 @@ import { connectHub, disconnectHub, isWebSerialSupported } from "@/lib/hubBridge
 
 const BOOT_WAIT_MS = 20_000;
 
-const STATE_LABEL: Record<string, { th: string; color: string; bg: string }> = {
-  disconnected: { th: "ยังไม่ได้ต่อ MainNode (USB)",  color: "text-red-300",     bg: "bg-red-950 border-red-900" },
-  connecting:   { th: "กำลังเปิด USB Serial...",      color: "text-amber-300",   bg: "bg-amber-950 border-amber-900" },
-  connected:    { th: "ต่อ MainNode แล้ว",           color: "text-emerald-300", bg: "bg-emerald-950 border-emerald-900" },
-  error:        { th: "MainNode มีปัญหา",            color: "text-red-300",     bg: "bg-red-950 border-red-900" },
-};
-
 function timeAgo(ts?: number) {
   if (!ts) return "—";
   const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60)   return `${s}s ที่แล้ว`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ที่แล้ว`;
-  return `${Math.floor(s / 3600)}h ที่แล้ว`;
+  if (s < 60)   return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
 }
 
-export function HubStatusBanner() {
-  const hub = useResQ((s) => s.hub);
-  const setDemoMode = useResQ((s) => s.setDemoMode);
-  const supported = isWebSerialSupported();
+const DOT: Record<string, string> = {
+  disconnected: "bg-app-muted",
+  connecting:   "bg-status-warn animate-pulse",
+  connected:    "bg-status-ok",
+  error:        "bg-status-err",
+};
+const LABEL_TH: Record<string, string> = {
+  disconnected: "OFFLINE",
+  connecting:   "CONNECTING",
+  connected:    "ONLINE",
+  error:        "ERROR",
+};
 
-  // Tick once a second so the boot-wait countdown stays current.
+export function HubStatusBanner() {
+  const hub         = useResQ((s) => s.hub);
+  const setDemoMode = useResQ((s) => s.setDemoMode);
+  const supported   = isWebSerialSupported();
+
   const [, force] = useState(0);
   useEffect(() => {
     if (hub.state !== "connecting") return;
@@ -39,102 +44,93 @@ export function HubStatusBanner() {
 
   if (hub.demoMode) {
     return (
-      <div className="flex items-center justify-between border-b border-fuchsia-900 bg-fuchsia-950 px-4 py-1.5 text-xs">
-        <span className="text-fuchsia-300">
-          🧪 <strong>โหมดทดสอบ (Demo)</strong> — กำลังจำลองข้อมูลโดยไม่ต้องใช้ฮาร์ดแวร์จริง
+      <div className="flex items-center h-6 bg-[#5d3a8a] text-white px-3 text-2xs tracking-wider uppercase border-b border-app-divider">
+        <span className="flex items-center gap-2">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+          DEMO MODE — simulated stream, no hardware required
         </span>
-        <button
-          onClick={() => setDemoMode(false)}
-          className="rounded bg-fuchsia-900 px-3 py-1 font-semibold uppercase text-white hover:bg-fuchsia-800"
-        >
-          ปิด Demo
+        <button onClick={() => setDemoMode(false)} className="ml-auto btn btn-sm">
+          Exit demo
         </button>
       </div>
     );
   }
 
-  const meta = STATE_LABEL[hub.state] ?? STATE_LABEL.disconnected!;
-
   return (
-    <div className={`border-b ${meta.bg} px-4 py-1.5`}>
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-3">
-          <span className={`flex items-center gap-2 ${meta.color}`}>
-            <span
-              className={`inline-block h-2 w-2 rounded-full ${
-                hub.state === "connected" ? "bg-emerald-400" :
-                hub.state === "connecting" ? "bg-amber-400 animate-pulse" : "bg-red-400"
-              }`}
-            />
-            <strong>{meta.th}</strong>
-            {hub.state === "connecting" && (
-              <span className="text-amber-200/80">
-                — รอ MainNode boot ({Math.ceil(bootElapsed / 1000)}s / {BOOT_WAIT_MS / 1000}s)
-                {hub.connectAttempts ? <span className="ml-1 text-slate-400">· ping × {hub.connectAttempts}</span> : null}
-                {bootRemaining <= 5 && bootRemaining > 0 && (
-                  <span className="ml-2 text-orange-300">⏱ จะหมดเวลาใน {bootRemaining}s</span>
-                )}
-              </span>
+    <div className="flex items-stretch h-6 bg-app-surface border-b border-app-divider text-xs">
+      {/* Left: state */}
+      <div className="flex items-center gap-2 px-3 border-r border-app-divider min-w-[180px]">
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${DOT[hub.state]}`} />
+        <span className="text-2xs font-semibold tracking-wider uppercase text-app-text">{LABEL_TH[hub.state]}</span>
+      </div>
+
+      {/* Middle: details */}
+      <div className="flex items-center gap-4 px-3 text-app-dim flex-1 min-w-0 overflow-hidden">
+        {hub.state === "connecting" && (
+          <span className="truncate">
+            <span className="text-status-warn">waiting boot</span>
+            <span className="font-mono ml-2">{Math.ceil(bootElapsed / 1000)}s / {BOOT_WAIT_MS / 1000}s</span>
+            {hub.connectAttempts ? <span className="ml-2 text-app-muted">ping × {hub.connectAttempts}</span> : null}
+            {bootRemaining > 0 && bootRemaining <= 5 && (
+              <span className="ml-2 text-triage-yellow">timeout in {bootRemaining}s</span>
             )}
           </span>
-          {hub.state === "connected" && (
-            <span className="text-slate-400">
-              {hub.mainId  && <span className="font-mono">{hub.mainId}</span>}
-              {hub.fw      && <span className="ml-2 text-slate-500">fw {hub.fw}</span>}
-              {hub.cycleId !== undefined && <span className="ml-2">cycle <span className="font-mono text-emerald-300">#{hub.cycleId}</span></span>}
-              <span className="ml-2">• packets: <span className="font-mono text-emerald-300">{hub.loraPacketsReceived}</span></span>
-              <span className="ml-2">• ล่าสุด: {timeAgo(hub.lastHeartbeat)}</span>
-              {hub.emergencyMode && <span className="ml-2 rounded bg-red-700 px-1.5 font-bold text-white">EMERGENCY</span>}
-              {hub.loraReady === false && (
-                <span className="ml-2 rounded bg-orange-700 px-1.5 font-bold text-white" title={hub.loraLastError ?? "ตรวจไม่พบ SX1278 บน SPI"}>
-                  LoRa OFFLINE
-                </span>
-              )}
-            </span>
-          )}
-          {hub.lastError && hub.state !== "connected" && (
-            <span className="text-red-400">— {hub.lastError}</span>
-          )}
-          {!supported && (
-            <span className="text-amber-400">— ต้องใช้ Chrome หรือ Edge สำหรับ WebSerial</span>
-          )}
-        </div>
+        )}
 
-        <div className="flex items-center gap-2">
-          {hub.state !== "connected" ? (
-            <>
-              {hub.state === "connecting" ? (
-                <button
-                  onClick={() => void disconnectHub()}
-                  className="rounded bg-slate-700 px-3 py-0.5 font-semibold text-slate-100 hover:bg-slate-600"
-                >
-                  ยกเลิก
-                </button>
-              ) : null}
-              <button
-                onClick={() => void connectHub()}
-                disabled={!supported || hub.state === "connecting"}
-                className="rounded bg-emerald-700 px-3 py-0.5 font-semibold text-white hover:bg-emerald-600 disabled:opacity-40"
-              >
-                เชื่อมต่อ USB
+        {hub.state === "connected" && (
+          <>
+            {hub.mainId && <span className="font-mono text-app-text">{hub.mainId}</span>}
+            {hub.fw     && <span className="text-app-muted">fw {hub.fw}</span>}
+            {hub.cycleId !== undefined && (
+              <span>cycle <span className="font-mono text-status-ok">#{hub.cycleId}</span></span>
+            )}
+            <span>rx <span className="font-mono text-app-text">{hub.loraPacketsReceived}</span></span>
+            <span className="text-app-muted">last {timeAgo(hub.lastHeartbeat)}</span>
+            {hub.loraReady === false && (
+              <span className="pill bg-triage-yellow text-app-bg" title={hub.loraLastError ?? "SX1278 not detected on SPI"}>
+                LoRa offline
+              </span>
+            )}
+            {hub.emergencyMode && (
+              <span className="pill bg-triage-red">Emergency</span>
+            )}
+          </>
+        )}
+
+        {hub.state === "error" && hub.lastError && (
+          <span className="text-status-err truncate">{hub.lastError}</span>
+        )}
+
+        {!supported && hub.state !== "connected" && (
+          <span className="text-status-warn">WebSerial requires Chrome / Edge</span>
+        )}
+      </div>
+
+      {/* Right: controls */}
+      <div className="flex items-stretch border-l border-app-divider">
+        {hub.state === "connected" ? (
+          <button onClick={() => void disconnectHub()} className="px-3 hover:bg-app-raised text-2xs tracking-wider uppercase text-app-dim hover:text-app-text">
+            Disconnect
+          </button>
+        ) : (
+          <>
+            {hub.state === "connecting" && (
+              <button onClick={() => void disconnectHub()} className="px-3 hover:bg-app-raised text-2xs tracking-wider uppercase text-app-dim hover:text-app-text">
+                Cancel
               </button>
-              <button
-                onClick={() => setDemoMode(true)}
-                className="rounded bg-fuchsia-700 px-2 py-0.5 font-semibold text-white hover:bg-fuchsia-600"
-                title="ใช้ข้อมูลจำลองสำหรับทดสอบ UI โดยไม่ต้องใช้ฮาร์ดแวร์"
-              >
-                เปิด Demo
-              </button>
-            </>
-          ) : (
+            )}
             <button
-              onClick={() => void disconnectHub()}
-              className="rounded bg-slate-700 px-3 py-0.5 font-semibold text-slate-100 hover:bg-slate-600"
+              onClick={() => void connectHub()}
+              disabled={!supported || hub.state === "connecting"}
+              className="px-3 bg-accent-pressed hover:bg-accent disabled:opacity-40 text-2xs tracking-wider uppercase text-white font-semibold"
             >
-              ตัดการเชื่อมต่อ
+              Connect USB
             </button>
-          )}
-        </div>
+            <button onClick={() => setDemoMode(true)} className="px-3 hover:bg-app-raised text-2xs tracking-wider uppercase text-app-dim hover:text-app-text border-l border-app-divider">
+              Demo
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
