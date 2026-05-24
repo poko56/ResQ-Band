@@ -1,0 +1,11 @@
+{
+  "name": "ResQ-Band Command Center",
+  "short_name": "ResQ-Band",
+  "description": "Real-time wristband tracking and triage dashboard for US&R operations",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#ef4444",
+  "icons": []
+}
