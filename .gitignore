@@ -19,3 +19,8 @@ sdkconfig.old
 secrets.h
 *.local.h
 .env
+
+# Firebase
+.firebase/
+firebase-debug.log
+.firebaserc.local
