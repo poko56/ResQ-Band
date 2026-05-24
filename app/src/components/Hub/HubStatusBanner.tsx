@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useResQ } from "@/lib/store";
 import { connectHub, disconnectHub, isWebSerialSupported } from "@/lib/hubBridge";
+
+const BOOT_WAIT_MS = 20_000;
 
 const STATE_LABEL: Record<string, { th: string; color: string; bg: string }> = {
   disconnected: { th: "ยังไม่ได้ต่อ MainNode (USB)",  color: "text-red-300",     bg: "bg-red-950 border-red-900" },
@@ -22,6 +25,17 @@ export function HubStatusBanner() {
   const hub = useResQ((s) => s.hub);
   const setDemoMode = useResQ((s) => s.setDemoMode);
   const supported = isWebSerialSupported();
+
+  // Tick once a second so the boot-wait countdown stays current.
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (hub.state !== "connecting") return;
+    const t = setInterval(() => force((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, [hub.state]);
+
+  const bootElapsed = hub.connectStartedAt ? Date.now() - hub.connectStartedAt : 0;
+  const bootRemaining = Math.max(0, Math.ceil((BOOT_WAIT_MS - bootElapsed) / 1000));
 
   if (hub.demoMode) {
     return (
@@ -53,6 +67,15 @@ export function HubStatusBanner() {
               }`}
             />
             <strong>{meta.th}</strong>
+            {hub.state === "connecting" && (
+              <span className="text-amber-200/80">
+                — รอ MainNode boot ({Math.ceil(bootElapsed / 1000)}s / {BOOT_WAIT_MS / 1000}s)
+                {hub.connectAttempts ? <span className="ml-1 text-slate-400">· ping × {hub.connectAttempts}</span> : null}
+                {bootRemaining <= 5 && bootRemaining > 0 && (
+                  <span className="ml-2 text-orange-300">⏱ จะหมดเวลาใน {bootRemaining}s</span>
+                )}
+              </span>
+            )}
           </span>
           {hub.state === "connected" && (
             <span className="text-slate-400">
@@ -80,6 +103,14 @@ export function HubStatusBanner() {
         <div className="flex items-center gap-2">
           {hub.state !== "connected" ? (
             <>
+              {hub.state === "connecting" ? (
+                <button
+                  onClick={() => void disconnectHub()}
+                  className="rounded bg-slate-700 px-3 py-0.5 font-semibold text-slate-100 hover:bg-slate-600"
+                >
+                  ยกเลิก
+                </button>
+              ) : null}
               <button
                 onClick={() => void connectHub()}
                 disabled={!supported || hub.state === "connecting"}

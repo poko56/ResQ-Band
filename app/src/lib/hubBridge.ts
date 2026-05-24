@@ -17,9 +17,11 @@ import { useResQ, _registerSendCommand } from "./store";
 import type { HubCommand, HubEvent } from "./types";
 import { startMockStream, stopMockStream } from "./mock";
 
-const SERIAL_BAUD       = 115200;
+const SERIAL_BAUD        = 115200;
 const HEARTBEAT_WATCH_MS = 8000;       // mark disconnected if no event for this long
 const RECONNECT_DELAY_MS = 2000;
+const BOOT_WAIT_MS       = 20_000;     // wait up to 20s for first event after open
+const BOOT_PING_EVERY_MS = 800;        // poke firmware while waiting
 
 // ----------------------------------------------------------------------------
 // Module-scoped port handles. Kept outside React so commands can be issued
@@ -31,6 +33,13 @@ let activePort: AnyPort | null = null;
 let activeWriter: WritableStreamDefaultWriter<string> | null = null;
 let readerLoopAborter: AbortController | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let bootPingTimer:  ReturnType<typeof setInterval> | null = null;
+let bootDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
+
+function stopBootPolling() {
+  if (bootPingTimer)     { clearInterval(bootPingTimer); bootPingTimer = null; }
+  if (bootDeadlineTimer) { clearTimeout(bootDeadlineTimer); bootDeadlineTimer = null; }
+}
 
 // ----------------------------------------------------------------------------
 // Public API
@@ -46,6 +55,8 @@ export async function connectHub(): Promise<void> {
   }
   try {
     useResQ.getState().setHubState("connecting");
+    useResQ.getState().setHubInfo({ connectStartedAt: Date.now(), connectAttempts: 0 });
+
     const port: AnyPort = await (navigator as any).serial.requestPort();
     await port.open({ baudRate: SERIAL_BAUD });
     activePort = port;
@@ -61,6 +72,27 @@ export async function connectHub(): Promise<void> {
       useResQ.getState().setHubState("error", String(err?.message ?? err));
     });
 
+    // Boot wait: poke firmware with `ping` so a freshly-rebooted MainNode
+    // that already missed its boot-time `hello` still answers within a
+    // second. We stop polling on the first event from the device, or after
+    // BOOT_WAIT_MS, whichever comes first.
+    stopBootPolling();
+    bootPingTimer = setInterval(() => {
+      if (useResQ.getState().hub.state === "connected") { stopBootPolling(); return; }
+      const attempts = (useResQ.getState().hub.connectAttempts ?? 0) + 1;
+      useResQ.getState().setHubInfo({ connectAttempts: attempts });
+      void sendCommand({ c: "ping" });
+    }, BOOT_PING_EVERY_MS);
+    bootDeadlineTimer = setTimeout(() => {
+      if (useResQ.getState().hub.state === "connecting") {
+        useResQ.getState().setHubState(
+          "error",
+          `ไม่ตอบสนองภายใน ${BOOT_WAIT_MS / 1000}s - ลองกดปุ่ม RST ที่บอร์ดแล้วเชื่อมต่อใหม่`,
+        );
+      }
+      stopBootPolling();
+    }, BOOT_WAIT_MS);
+
     // Heartbeat watchdog: if we don't see any event for HEARTBEAT_WATCH_MS,
     // mark disconnected so the UI nudges the user.
     if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -72,6 +104,7 @@ export async function connectHub(): Promise<void> {
       }
     }, 2000);
   } catch (err) {
+    stopBootPolling();
     useResQ.getState().setHubState("error", String((err as Error)?.message ?? err));
   }
 }
@@ -81,6 +114,7 @@ export async function disconnectHub(): Promise<void> {
     readerLoopAborter?.abort();
     readerLoopAborter = null;
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    stopBootPolling();
     try { await activeWriter?.close(); } catch { /* ignore */ }
     activeWriter = null;
     try { await activePort?.close(); } catch { /* ignore */ }
@@ -150,6 +184,7 @@ function dispatchHubEvent(ev: HubEvent): void {
     case "hello":
       s.setHubInfo({ mainId: ev.main_id, fw: ev.fw, cycleId: 0, loraReady: ev.lora_ready });
       s.setHubState("connected");
+      stopBootPolling();
       break;
 
     case "stats":
@@ -186,9 +221,24 @@ function dispatchHubEvent(ev: HubEvent): void {
       s.applyFound(ev);
       break;
 
+    case "pong":
+      // Treat pong as hello-equivalent: it carries the same identity payload
+      // so a late-attaching client still learns mainId / fw / cycle without
+      // waiting up to TDMA_CYCLE_MS for a beacon to roll around.
+      if (ev.main_id || ev.fw || ev.lora_ready !== undefined) {
+        s.setHubInfo({
+          mainId:    ev.main_id ?? s.hub.mainId,
+          fw:        ev.fw      ?? s.hub.fw,
+          cycleId:   ev.cycle   ?? s.hub.cycleId,
+          loraReady: ev.lora_ready,
+        });
+      }
+      s.setHubState("connected");
+      stopBootPolling();
+      break;
+
     case "ring_ack":
     case "ack":
-    case "pong":
       // diagnostic - nothing to do for now
       break;
 

@@ -638,9 +638,19 @@ static void handle_serial_command(const char* line, size_t len) {
     JsonDocument r; r["t"] = "ack"; r["c"] = "clear_alarm"; send_json_event(r);
   }
   else if (!strcmp(cmd, "ping")) {
+    // Pong carries the same identity payload as hello so the web bridge can
+    // bootstrap state when it attaches AFTER the boot-time hello was lost.
     JsonDocument r;
-    r["t"]   = "pong";
-    r["ts"]  = (uint32_t)millis();
+    r["t"]            = "pong";
+    char id_hex[9]; snprintf(id_hex, sizeof(id_hex), "%08X", g_main_id);
+    r["main_id"]      = id_hex;
+    r["fw"]           = FW_VERSION;
+    r["board"]        = BOARD_NAME;
+    r["cycle"]        = g_cycle_id;
+    r["uptime_s"]     = (uint32_t)(millis() / 1000);
+    r["lora_ready"]   = g_lora_ready;
+    r["tdma_cycle_ms"] = TDMA_CYCLE_MS;
+    r["ts"]           = (uint32_t)millis();
     send_json_event(r);
   }
   else {

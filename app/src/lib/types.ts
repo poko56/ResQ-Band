@@ -159,6 +159,8 @@ export interface HubStatus {
   emergencyMode: boolean;
   loraReady?: boolean;        // MainNode reports whether SX1278 SPI is alive
   loraLastError?: string;     // last lora_init_failed message
+  connectStartedAt?: number;  // ms when current "connecting" phase began
+  connectAttempts?: number;   // ping attempts sent so far during boot wait
 }
 
 // ----------------------------------------------------------------------------
@@ -175,7 +177,7 @@ export type HubEvent =
   | { t: "assignment"; band: string; score: number; pin: number; rssi: number; triage: number; reason: AssignReason; ts: number }
   | { t: "found"; node_id: string; band: string; outcome: FoundOutcome; rssi: number; ts: number }
   | { t: "ring_ack"; band: string; status: number; ts: number }
-  | { t: "pong"; ts: number }
+  | { t: "pong"; main_id?: string; fw?: string; board?: string; cycle?: number; uptime_s?: number; lora_ready?: boolean; tdma_cycle_ms?: number; ts: number }
   | { t: "ack"; c: string }
   | { t: "err"; msg: string; c?: string }
   | { t: "fatal"; msg: string };
