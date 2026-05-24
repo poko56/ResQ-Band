@@ -148,12 +148,20 @@ function dispatchHubEvent(ev: HubEvent): void {
 
   switch (ev.t) {
     case "hello":
-      s.setHubInfo({ mainId: ev.main_id, fw: ev.fw, cycleId: 0 });
+      s.setHubInfo({ mainId: ev.main_id, fw: ev.fw, cycleId: 0, loraReady: ev.lora_ready });
       s.setHubState("connected");
       break;
 
     case "stats":
-      s.setHubInfo({ cycleId: ev.cycle });
+      s.setHubInfo({ cycleId: ev.cycle, loraReady: ev.lora_ready });
+      break;
+
+    case "lora_init_failed":
+      s.setHubInfo({ loraReady: false, loraLastError: ev.msg });
+      break;
+
+    case "lora_ready":
+      s.setHubInfo({ loraReady: true, loraLastError: undefined });
       break;
 
     case "beacon":

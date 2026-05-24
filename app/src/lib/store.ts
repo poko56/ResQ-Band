@@ -121,7 +121,15 @@ export const useResQ = create<ResQState>((set, get) => ({
     set((s) => ({ hub: { ...s.hub, ...partial } })),
 
   notifyHubHeartbeat: () =>
-    set((s) => ({ hub: { ...s.hub, lastHeartbeat: Date.now(), state: s.hub.state === "disconnected" ? "connected" : s.hub.state } })),
+    set((s) => ({ hub: {
+      ...s.hub,
+      lastHeartbeat: Date.now(),
+      // Any event from the MainNode counts as proof of connection.
+      state: (s.hub.state === "disconnected" || s.hub.state === "connecting" || s.hub.state === "error")
+        ? "connected"
+        : s.hub.state,
+      lastError: undefined,
+    } })),
 
   incHubPackets: () =>
     set((s) => ({ hub: { ...s.hub, loraPacketsReceived: s.hub.loraPacketsReceived + 1 } })),

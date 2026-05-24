@@ -66,10 +66,12 @@ static uint32_t g_cycle_id             = 0;
 static uint32_t g_last_beacon_ms       = 0;
 static uint32_t g_last_dispatch_ms     = 0;
 static uint32_t g_last_usb_hb_ms       = 0;
+static uint32_t g_last_lora_retry_ms   = 0;
 static uint32_t g_rx_count             = 0;
 static uint32_t g_rx_dropped           = 0;
 static uint32_t g_sos_pending_until_ms = 0;   // local alarm deadline
 static bool     g_local_alarm_active   = false;
+static bool     g_lora_ready           = false;
 static int      g_pending_dispatch_idx = -1;
 
 // ----------------------------------------------------------------------------
@@ -90,16 +92,13 @@ static ResQ::AssignReason classify_reason(const BandState& b, uint32_t now_ms);
 // ============================================================================
 // Setup
 // ============================================================================
-static void connect_lora() {
+// Returns true on success. Non-fatal: caller may retry from loop().
+static bool connect_lora() {
   SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_SS);
   LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
 
   if (!LoRa.begin(LORA_FREQUENCY)) {
-    Serial.println("{\"t\":\"fatal\",\"msg\":\"LoRa init failed\"}");
-    while (true) {
-      digitalWrite(PIN_LED_STATUS, !digitalRead(PIN_LED_STATUS));
-      delay(150);
-    }
+    return false;
   }
   LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
   LoRa.setSignalBandwidth(LORA_BANDWIDTH);
@@ -109,6 +108,7 @@ static void connect_lora() {
   LoRa.enableCrc();
   LoRa.onReceive(on_lora_rx);
   LoRa.receive();
+  return true;
 }
 
 void setup() {
@@ -116,7 +116,9 @@ void setup() {
   setCpuFrequencyMhz(240);
 
   Serial.begin(USB_SERIAL_BAUD);
-  // Don't block on Serial - USB CDC enumerates async; web may attach later.
+  // Give HWCDC a moment to settle so the first Hello isn't lost to a
+  // late host enumeration. Non-blocking - we do not wait for !Serial.
+  delay(250);
 
   pinMode(PIN_LED_STATUS, OUTPUT);
   pinMode(PIN_LED_LORA,   OUTPUT);
@@ -132,7 +134,10 @@ void setup() {
     g_bands[i].known = false;
   }
 
-  connect_lora();
+  // LoRa is non-fatal at boot - keep main loop alive so the web UI can
+  // still connect and show "MainNode online but LoRa missing" diagnostics.
+  g_lora_ready = connect_lora();
+  g_last_lora_retry_ms = millis();
 
   // Hello banner via JSON line
   JsonDocument doc;
@@ -145,8 +150,22 @@ void setup() {
   doc["lora_mhz"] = LORA_FREQUENCY / 1e6;
   doc["sf"]      = LORA_SPREADING_FACTOR;
   doc["tdma_cycle_ms"] = TDMA_CYCLE_MS;
+  doc["lora_ready"]    = g_lora_ready;
   doc["ts"]      = (uint32_t)millis();
   send_json_event(doc);
+
+  if (!g_lora_ready) {
+    JsonDocument warn;
+    warn["t"]   = "lora_init_failed";
+    warn["msg"] = "SX1278/SX1276 not detected on SPI - will retry every 5s";
+    warn["pins"]["sck"]  = PIN_LORA_SCK;
+    warn["pins"]["miso"] = PIN_LORA_MISO;
+    warn["pins"]["mosi"] = PIN_LORA_MOSI;
+    warn["pins"]["ss"]   = PIN_LORA_SS;
+    warn["pins"]["rst"]  = PIN_LORA_RST;
+    warn["pins"]["dio0"] = PIN_LORA_DIO0;
+    send_json_event(warn);
+  }
 }
 
 // ============================================================================
@@ -155,8 +174,19 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
 
-  // --- TDMA coordinator: beacon every cycle ---------------------------------
-  if (now - g_last_beacon_ms >= TDMA_CYCLE_MS) {
+  // --- Periodic LoRa retry if init failed at boot ---------------------------
+  if (!g_lora_ready && now - g_last_lora_retry_ms >= 5000) {
+    g_last_lora_retry_ms = now;
+    g_lora_ready = connect_lora();
+    JsonDocument r;
+    r["t"]      = g_lora_ready ? "lora_ready" : "lora_init_failed";
+    r["msg"]    = g_lora_ready ? "LoRa came online" : "still no LoRa response";
+    r["ts"]     = (uint32_t)millis();
+    send_json_event(r);
+  }
+
+  // --- TDMA coordinator: beacon every cycle (only if radio up) --------------
+  if (g_lora_ready && now - g_last_beacon_ms >= TDMA_CYCLE_MS) {
     g_last_beacon_ms = now;
     g_cycle_id++;
     tx_beacon();
@@ -164,7 +194,7 @@ void loop() {
 
   // --- Dispatch assignment in slot 7 (MainNode cmd slot) --------------------
   // Re-evaluate every 2s; only TX if there's something to assign.
-  if (now - g_last_dispatch_ms >= 2000) {
+  if (g_lora_ready && now - g_last_dispatch_ms >= 2000) {
     g_last_dispatch_ms = now;
     int idx = pick_dispatch_target(now);
     if (idx >= 0) {
@@ -181,6 +211,7 @@ void loop() {
     doc["uptime_s"] = now / 1000;
     doc["rx"]       = g_rx_count;
     doc["dropped"]  = g_rx_dropped;
+    doc["lora_ready"] = g_lora_ready;
     uint8_t known = 0;
     for (uint8_t i = 0; i < MAX_BANDS; ++i) if (g_bands[i].known) known++;
     doc["bands"]    = known;

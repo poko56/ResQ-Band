@@ -157,15 +157,19 @@ export interface HubStatus {
   loraPacketsDropped: number;
   demoMode: boolean;
   emergencyMode: boolean;
+  loraReady?: boolean;        // MainNode reports whether SX1278 SPI is alive
+  loraLastError?: string;     // last lora_init_failed message
 }
 
 // ----------------------------------------------------------------------------
 // Wire protocol (MainNode -> Web)
 // ----------------------------------------------------------------------------
 export type HubEvent =
-  | { t: "hello"; fw: string; board: string; main_id: string; lora_mhz: number; sf: number; tdma_cycle_ms: number; ts: number }
-  | { t: "stats"; cycle: number; uptime_s: number; rx: number; dropped: number; bands: number; heap: number; ts: number }
+  | { t: "hello"; fw: string; board: string; main_id: string; lora_mhz: number; sf: number; tdma_cycle_ms: number; lora_ready?: boolean; ts: number }
+  | { t: "stats"; cycle: number; uptime_s: number; rx: number; dropped: number; bands: number; heap: number; lora_ready?: boolean; ts: number }
   | { t: "beacon"; cycle: number; flags: number; ts: number }
+  | { t: "lora_init_failed"; msg: string; pins?: Record<string, number>; ts: number }
+  | { t: "lora_ready"; msg: string; ts: number }
   | { t: "band"; id: string; ptype: string; seq: number; triage: number; hr: number; spo2: number; batt: number; g_x10: number; rssi: number; snr: number; ts: number }
   | { t: "pin_sighting"; pin: number; pin_id: string; sightings: { band: string; rssi: number; snr: number; age_ms: number }[]; rssi: number; snr: number; ts: number }
   | { t: "assignment"; band: string; score: number; pin: number; rssi: number; triage: number; reason: AssignReason; ts: number }

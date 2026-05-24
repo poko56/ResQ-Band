@@ -62,6 +62,11 @@ export function HubStatusBanner() {
               <span className="ml-2">• packets: <span className="font-mono text-emerald-300">{hub.loraPacketsReceived}</span></span>
               <span className="ml-2">• ล่าสุด: {timeAgo(hub.lastHeartbeat)}</span>
               {hub.emergencyMode && <span className="ml-2 rounded bg-red-700 px-1.5 font-bold text-white">EMERGENCY</span>}
+              {hub.loraReady === false && (
+                <span className="ml-2 rounded bg-orange-700 px-1.5 font-bold text-white" title={hub.loraLastError ?? "ตรวจไม่พบ SX1278 บน SPI"}>
+                  LoRa OFFLINE
+                </span>
+              )}
             </span>
           )}
           {hub.lastError && hub.state !== "connected" && (
