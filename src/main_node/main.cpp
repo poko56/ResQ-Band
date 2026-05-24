@@ -70,6 +70,7 @@ static uint32_t g_last_lora_retry_ms   = 0;
 static uint32_t g_last_led_ms          = 0;
 static uint32_t g_last_rx_flash_ms     = 0;
 static uint32_t g_last_tx_flash_ms     = 0;
+static uint32_t g_last_host_msg_ms     = 0;   // last serial cmd from web
 static uint32_t g_rx_count             = 0;
 static uint32_t g_rx_dropped           = 0;
 static uint32_t g_sos_pending_until_ms = 0;   // local alarm deadline
@@ -595,6 +596,7 @@ static uint32_t parse_hex32(const char* s) {
 }
 
 static void handle_serial_command(const char* line, size_t len) {
+  g_last_host_msg_ms = millis();   // host alive marker -> LED tint
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, line, len);
   if (err) {
@@ -669,13 +671,22 @@ static void handle_serial_command(const char* line, size_t len) {
 // RX (blue) and TX (cyan) activity so the operator can tell traffic is
 // flowing even without opening the dashboard.
 //
-//   solid blue dim     | boot, USB CDC alive but loop not started
+//   BASE COLOR (driven by device state)
+//   -----------------------------------
+//   bright blue fade   | first 1.5s after boot/reset  (visible "I rebooted")
 //   slow green breath  | healthy idle, LoRa ready, no work
 //   slow orange breath | LoRa SX1278 not responding (check wiring)
 //   pulsing red        | SOS pending - waiting for ResQ-Node to ack
 //   strobe red bright  | local alarm - no ack in MAIN_NODE_ALARM_MS
-//   blue flash 80 ms   | LoRa RX packet
-//   cyan flash 80 ms   | LoRa TX packet
+//
+//   OVERLAYS (transient, win over base)
+//   -----------------------------------
+//   80 ms blue flash   | LoRa RX packet (every received frame)
+//   80 ms cyan flash   | LoRa TX packet (beacon, assignment, ring_cmd)
+//   80 ms white blip   | host (web app) is talking to us - every ~1.5s
+//                        while at least one serial command arrived in
+//                        the last 8s, so you can see "web is connected"
+//                        without checking the browser
 //
 // neopixelWrite() is non-blocking and self-initializes the GPIO on first call.
 // ============================================================================
@@ -692,6 +703,15 @@ static void update_status_led(uint32_t now) {
   g_last_led_ms = now;
 
   uint8_t r = 0, g = 0, b = 0;
+
+  // ---- boot indicator: bright blue fading over 1.5s ----------------------
+  // Visible signal to the operator: "I just powered on / reset just now".
+  // After this window, normal state-driven colors take over.
+  if (now < 1500) {
+    uint8_t v = (uint8_t)(80 - (now * 60 / 1500));   // 80 -> 20 dim
+    neopixelWrite(PIN_LED_STATUS, 0, v / 4, v);
+    return;
+  }
 
   // ---- base color (priority order) ----
   if (g_local_alarm_active) {
@@ -711,9 +731,20 @@ static void update_status_led(uint32_t now) {
     g = breath(now, 3000, 2, 18);
   }
 
-  // ---- activity overlays ----
-  if (now - g_last_tx_flash_ms < 80) { r = 0; g = 40; b = 40; }   // TX: cyan flash
-  if (now - g_last_rx_flash_ms < 80) { r = 0; g = 10; b = 80; }   // RX: blue flash
+  // ---- host-attached heartbeat (cool white blip every 1.5s) --------------
+  // Web bridge keepalive pings us every 5s. As long as we heard from the
+  // host within the last 8s, paint a short white blip so the operator can
+  // see "yes, the laptop is actually talking to me".
+  const bool host_attached = (g_last_host_msg_ms > 0) &&
+                             (now - g_last_host_msg_ms < 8000);
+  if (host_attached) {
+    uint32_t phase = now % 1500;
+    if (phase < 80) { r = 30; g = 30; b = 50; }   // cool-white heartbeat
+  }
+
+  // ---- activity overlays (highest priority - latest write wins) ----------
+  if (now - g_last_tx_flash_ms < 80) { r = 0; g = 40; b = 40; }   // TX: cyan
+  if (now - g_last_rx_flash_ms < 80) { r = 0; g = 10; b = 80; }   // RX: blue
 
   neopixelWrite(PIN_LED_STATUS, r, g, b);
 }

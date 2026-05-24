@@ -22,6 +22,7 @@ const HEARTBEAT_WATCH_MS = 8000;       // mark disconnected if no event for this
 const RECONNECT_DELAY_MS = 2000;
 const BOOT_WAIT_MS       = 20_000;     // wait up to 20s for first event after open
 const BOOT_PING_EVERY_MS = 800;        // poke firmware while waiting
+const KEEPALIVE_MS       = 5_000;      // ping firmware so its LED stays "host attached"
 
 // ----------------------------------------------------------------------------
 // Module-scoped port handles. Kept outside React so commands can be issued
@@ -33,12 +34,25 @@ let activePort: AnyPort | null = null;
 let activeWriter: WritableStreamDefaultWriter<string> | null = null;
 let readerLoopAborter: AbortController | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-let bootPingTimer:  ReturnType<typeof setInterval> | null = null;
+let bootPingTimer:    ReturnType<typeof setInterval> | null = null;
 let bootDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
+let keepaliveTimer:    ReturnType<typeof setInterval> | null = null;
 
 function stopBootPolling() {
   if (bootPingTimer)     { clearInterval(bootPingTimer); bootPingTimer = null; }
   if (bootDeadlineTimer) { clearTimeout(bootDeadlineTimer); bootDeadlineTimer = null; }
+}
+
+function startKeepalive() {
+  if (keepaliveTimer) return;
+  keepaliveTimer = setInterval(() => {
+    if (useResQ.getState().hub.state === "connected") {
+      void sendCommand({ c: "ping" });
+    }
+  }, KEEPALIVE_MS);
+}
+function stopKeepalive() {
+  if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null; }
 }
 
 // ----------------------------------------------------------------------------
@@ -103,8 +117,13 @@ export async function connectHub(): Promise<void> {
         setHubState("error", "ไม่มีสัญญาณจาก MainNode > 8s");
       }
     }, 2000);
+
+    // Keepalive so MainNode's RGB stays "host attached" (white heartbeat
+    // every 1.5s instead of dimming back to plain green idle).
+    startKeepalive();
   } catch (err) {
     stopBootPolling();
+    stopKeepalive();
     useResQ.getState().setHubState("error", String((err as Error)?.message ?? err));
   }
 }
@@ -115,6 +134,7 @@ export async function disconnectHub(): Promise<void> {
     readerLoopAborter = null;
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     stopBootPolling();
+    stopKeepalive();
     try { await activeWriter?.close(); } catch { /* ignore */ }
     activeWriter = null;
     try { await activePort?.close(); } catch { /* ignore */ }
