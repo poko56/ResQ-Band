@@ -1,29 +1,27 @@
 "use client";
 
-import { useState } from "react";
 import { useResQ } from "@/lib/store";
+import { connectHub, disconnectHub, isWebSerialSupported } from "@/lib/hubBridge";
 
 const STATE_LABEL: Record<string, { th: string; color: string; bg: string }> = {
-  disconnected: { th: "ไม่ได้เชื่อมต่อ Main Hub", color: "text-red-300", bg: "bg-red-950 border-red-900" },
-  connecting:   { th: "กำลังเชื่อมต่อ Main Hub...", color: "text-amber-300", bg: "bg-amber-950 border-amber-900" },
-  connected:    { th: "เชื่อมต่อ Main Hub แล้ว", color: "text-emerald-300", bg: "bg-emerald-950 border-emerald-900" },
-  error:        { th: "Main Hub มีปัญหา", color: "text-red-300", bg: "bg-red-950 border-red-900" },
+  disconnected: { th: "ยังไม่ได้ต่อ MainNode (USB)",  color: "text-red-300",     bg: "bg-red-950 border-red-900" },
+  connecting:   { th: "กำลังเปิด USB Serial...",      color: "text-amber-300",   bg: "bg-amber-950 border-amber-900" },
+  connected:    { th: "ต่อ MainNode แล้ว",           color: "text-emerald-300", bg: "bg-emerald-950 border-emerald-900" },
+  error:        { th: "MainNode มีปัญหา",            color: "text-red-300",     bg: "bg-red-950 border-red-900" },
 };
 
 function timeAgo(ts?: number) {
   if (!ts) return "—";
   const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ที่แล้ว`;
+  if (s < 60)   return `${s}s ที่แล้ว`;
   if (s < 3600) return `${Math.floor(s / 60)}m ที่แล้ว`;
   return `${Math.floor(s / 3600)}h ที่แล้ว`;
 }
 
 export function HubStatusBanner() {
   const hub = useResQ((s) => s.hub);
-  const setHubUrl = useResQ((s) => s.setHubUrl);
   const setDemoMode = useResQ((s) => s.setDemoMode);
-  const [editing, setEditing] = useState(false);
-  const [draftUrl, setDraftUrl] = useState(hub.url);
+  const supported = isWebSerialSupported();
 
   if (hub.demoMode) {
     return (
@@ -49,70 +47,56 @@ export function HubStatusBanner() {
         <div className="flex items-center gap-3">
           <span className={`flex items-center gap-2 ${meta.color}`}>
             <span
-              className={`inline-block h-2 w-2 rounded-full ${hub.state === "connected" ? "bg-emerald-400" : hub.state === "connecting" ? "bg-amber-400 animate-pulse" : "bg-red-400"}`}
+              className={`inline-block h-2 w-2 rounded-full ${
+                hub.state === "connected" ? "bg-emerald-400" :
+                hub.state === "connecting" ? "bg-amber-400 animate-pulse" : "bg-red-400"
+              }`}
             />
             <strong>{meta.th}</strong>
           </span>
           {hub.state === "connected" && (
             <span className="text-slate-400">
-              {hub.hubId && <span className="font-mono">{hub.hubId}</span>}
+              {hub.mainId  && <span className="font-mono">{hub.mainId}</span>}
+              {hub.fw      && <span className="ml-2 text-slate-500">fw {hub.fw}</span>}
+              {hub.cycleId !== undefined && <span className="ml-2">cycle <span className="font-mono text-emerald-300">#{hub.cycleId}</span></span>}
               <span className="ml-2">• packets: <span className="font-mono text-emerald-300">{hub.loraPacketsReceived}</span></span>
-              <span className="ml-2">• heartbeat: {timeAgo(hub.lastHeartbeat)}</span>
+              <span className="ml-2">• ล่าสุด: {timeAgo(hub.lastHeartbeat)}</span>
+              {hub.emergencyMode && <span className="ml-2 rounded bg-red-700 px-1.5 font-bold text-white">EMERGENCY</span>}
             </span>
           )}
           {hub.lastError && hub.state !== "connected" && (
             <span className="text-red-400">— {hub.lastError}</span>
           )}
+          {!supported && (
+            <span className="text-amber-400">— ต้องใช้ Chrome หรือ Edge สำหรับ WebSerial</span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
-          {!editing ? (
+          {hub.state !== "connected" ? (
             <>
-              <span className="font-mono text-slate-500">{hub.url}</span>
               <button
-                onClick={() => {
-                  setDraftUrl(hub.url);
-                  setEditing(true);
-                }}
-                className="rounded bg-panel px-2 py-0.5 text-slate-300 hover:bg-slate-700"
+                onClick={() => void connectHub()}
+                disabled={!supported || hub.state === "connecting"}
+                className="rounded bg-emerald-700 px-3 py-0.5 font-semibold text-white hover:bg-emerald-600 disabled:opacity-40"
               >
-                ตั้งค่า
+                เชื่อมต่อ USB
               </button>
-              {hub.state !== "connected" && (
-                <button
-                  onClick={() => setDemoMode(true)}
-                  className="rounded bg-fuchsia-700 px-2 py-0.5 font-semibold text-white hover:bg-fuchsia-600"
-                  title="ใช้ข้อมูลจำลองสำหรับทดสอบ UI โดยไม่ต้องใช้ฮาร์ดแวร์"
-                >
-                  เปิด Demo
-                </button>
-              )}
+              <button
+                onClick={() => setDemoMode(true)}
+                className="rounded bg-fuchsia-700 px-2 py-0.5 font-semibold text-white hover:bg-fuchsia-600"
+                title="ใช้ข้อมูลจำลองสำหรับทดสอบ UI โดยไม่ต้องใช้ฮาร์ดแวร์"
+              >
+                เปิด Demo
+              </button>
             </>
           ) : (
-            <>
-              <input
-                value={draftUrl}
-                onChange={(e) => setDraftUrl(e.target.value)}
-                placeholder="ws://192.168.x.x:81/ws"
-                className="w-72 rounded border border-panel-border bg-panel px-2 py-0.5 font-mono text-xs text-slate-200 outline-none focus:border-emerald-500"
-                autoFocus
-              />
-              <button
-                onClick={() => {
-                  setHubUrl(draftUrl.trim());
-                  setEditing(false);
-                }}
-                className="rounded bg-emerald-700 px-2 py-0.5 font-semibold text-white hover:bg-emerald-600"
-              >
-                บันทึก
-              </button>
-              <button
-                onClick={() => setEditing(false)}
-                className="rounded bg-panel px-2 py-0.5 text-slate-400 hover:bg-slate-700"
-              >
-                ยกเลิก
-              </button>
-            </>
+            <button
+              onClick={() => void disconnectHub()}
+              className="rounded bg-slate-700 px-3 py-0.5 font-semibold text-slate-100 hover:bg-slate-600"
+            >
+              ตัดการเชื่อมต่อ
+            </button>
           )}
         </div>
       </div>
