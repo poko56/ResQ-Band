@@ -67,7 +67,7 @@ export default function LiveMap() {
   const anchorMarkers = useMemo(() => Object.values(anchors), [anchors]);
   const survivorMarkers = useMemo(() => {
     return Object.values(sightings)
-      .filter((s) => s.position && s.status !== "rescued")
+      .filter((s) => s.position && s.status !== "rescued" && s.status !== "silent")
       .map((s) => ({ sighting: s, wristband: wristbands[s.wristbandId] }));
   }, [sightings, wristbands]);
 
@@ -93,7 +93,7 @@ export default function LiveMap() {
             <Marker position={[a.position.lat, a.position.lng]} icon={makeAnchorIcon(a.name)}>
               <Popup>
                 <div className="text-xs">
-                  <div className="font-bold">{a.name}</div>
+                  <div className="font-bold">{a.name} {!a.online && <span className="text-red-500">(Offline)</span>}</div>
                   <div className="font-mono text-slate-500">{a.id}</div>
                   <div>
                     {a.position.lat.toFixed(6)}, {a.position.lng.toFixed(6)}
@@ -104,7 +104,7 @@ export default function LiveMap() {
             <Circle
               center={[a.position.lat, a.position.lng]}
               radius={150}
-              pathOptions={{ color: "#f97316", weight: 1, opacity: 0.4, fillOpacity: 0.05 }}
+              pathOptions={{ color: a.online ? "#f97316" : "#64748b", weight: 1, opacity: 0.4, fillOpacity: 0.05 }}
             />
           </Fragment>
         ))}

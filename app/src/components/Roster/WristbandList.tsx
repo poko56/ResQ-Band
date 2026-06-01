@@ -43,9 +43,10 @@ export function WristbandList() {
         const triage = s?.triage ?? "green";
         const isSOS = s?.status === "sos";
         const isRescued = s?.status === "rescued";
+        const isSilent = s?.status === "silent";
 
         return (
-          <li key={wb.id} className={`row-hover flex items-center gap-2 px-2 py-1.5 ${isRescued ? "opacity-40" : ""}`}>
+          <li key={wb.id} className={`row-hover flex items-center gap-2 px-2 py-1.5 ${isRescued || isSilent ? "opacity-40" : ""}`}>
             <span
               className={`resq-pin shrink-0 ${isSOS ? "pulse-sos" : ""}`}
               style={{ background: TRIAGE_COLORS[triage] }}

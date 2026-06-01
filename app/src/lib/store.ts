@@ -75,6 +75,7 @@ interface ResQState {
   // --- Misc --------------------------------------------------------------
   pushEvent: (type: TimelineEventType, message: string, refs?: { wristbandId?: string; anchorId?: string }) => void;
   resetIncident: () => void;
+  sweepStaleNodes: () => void;
 }
 
 const defaultIncident = (): Incident => ({
@@ -397,6 +398,35 @@ export const useResQ = create<ResQState>((set, get) => ({
       sightings: {},
       timeline: [],
       searchMode: false,
+    });
+  },
+
+  sweepStaleNodes: () => {
+    const now = Date.now();
+    set((s) => {
+      let changed = false;
+      const nextAnchors = { ...s.anchors };
+      const nextSightings = { ...s.sightings };
+
+      for (const id in nextAnchors) {
+        const a = nextAnchors[id];
+        if (a.online && a.lastSeen && now - a.lastSeen > 30000) {
+          nextAnchors[id] = { ...a, online: false };
+          changed = true;
+        }
+      }
+
+      for (const id in nextSightings) {
+        const sg = nextSightings[id];
+        if (sg.status === "active" || sg.status === "sos" || sg.status === "assigned") {
+          if (now - sg.lastSeen > 60000) {
+            nextSightings[id] = { ...sg, status: "silent" };
+            changed = true;
+          }
+        }
+      }
+
+      return changed ? { anchors: nextAnchors, sightings: nextSightings } : s;
     });
   },
 }));

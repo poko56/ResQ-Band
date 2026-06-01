@@ -287,8 +287,13 @@ export function useHubBridge() {
   }, [demoMode]);
 
   useEffect(() => {
+    const sweepTimer = setInterval(() => {
+      useResQ.getState().sweepStaleNodes();
+    }, 5000);
+
     // Cleanup on app unmount
     return () => {
+      clearInterval(sweepTimer);
       void disconnectHub();
     };
   }, []);
