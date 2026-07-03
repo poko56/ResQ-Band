@@ -497,6 +497,9 @@ static void on_lora_rx(int packet_size) {
     out["t"]      = "pin_button";
     char pid[9]; snprintf(pid, sizeof(pid), "%08X", pkt.pin_device_id);
     out["pin_id"] = pid;
+    if (assigned_slot >= 0) {
+      out["slot"] = assigned_slot;
+    }
     out["ts"]     = (uint32_t)millis();
     send_json_event(out);
   } else {

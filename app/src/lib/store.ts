@@ -45,6 +45,7 @@ interface ResQState {
   removeAnchor: (id: string) => void;
   renameAnchor: (id: string, name: string) => void;
   setAnchorPosition: (id: string, position: LatLng) => void;
+  registerAnchorId: (id: string, pinIndex?: number) => void;
 
   setPlacementMode: (mode: PlacementMode) => void;
 
@@ -206,6 +207,29 @@ export const useResQ = create<ResQState>((set, get) => ({
       const a = s.anchors[id];
       if (!a) return s;
       return { anchors: { ...s.anchors, [id]: { ...a, position } } };
+    });
+  },
+
+  registerAnchorId: (id, pinIndex) => {
+    set((s) => {
+      if (s.anchors[id]) return s;
+      // If we don't have a specific pinIndex, pick the lowest free one (0..3)
+      let idx = pinIndex;
+      if (idx === undefined || idx < 0) {
+        const used = new Set(Object.values(s.anchors).map((a) => a.pinIndex));
+        idx = 0;
+        while (used.has(idx) && idx < 4) idx++;
+        if (idx >= 4) idx = 3;
+      }
+      const anchor: Anchor = {
+        id,
+        pinIndex: idx,
+        name: `Pin-${idx}`,
+        online: true, // We just heard from it
+        placedAt: Date.now(),
+        lastSeen: Date.now(),
+      };
+      return { anchors: { ...s.anchors, [id]: anchor } };
     });
   },
 

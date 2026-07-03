@@ -188,7 +188,7 @@ export type HubEvent =
   | { t: "lora_ready"; msg: string; ts: number }
   | { t: "wifi_status"; connected: boolean; ssid?: string; ip?: string; rssi?: number; ts: number }
   | { t: "ota_status"; stage: OtaStage; current?: string; latest?: string; available?: boolean; url?: string; msg?: string; ts: number }
-  | { t: "pin_button"; pin_id: string; ts: number }
+  | { t: "pin_button"; pin_id: string; slot?: number; ts: number }
   | { t: "band"; id: string; ptype: string; seq: number; triage: number; hr: number; spo2: number; batt: number; g_x10: number; rssi: number; snr: number; ts: number }
   | { t: "pin_sighting"; pin: number; pin_id: string; sightings: { band: string; rssi: number; snr: number; age_ms: number }[]; rssi: number; snr: number; ts: number }
   | { t: "assignment"; band: string; score: number; pin: number; rssi: number; triage: number; reason: AssignReason; ts: number }

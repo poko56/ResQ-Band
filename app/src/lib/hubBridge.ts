@@ -239,6 +239,7 @@ function dispatchHubEvent(ev: HubEvent): void {
       break;
 
     case "pin_button":
+      s.registerAnchorId(ev.pin_id, ev.slot);
       s.setPlacementMode(ev.pin_id);
       break;
 
