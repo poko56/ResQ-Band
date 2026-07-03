@@ -1,8 +1,12 @@
 "use client";
 
 import { TopBar } from "@/components/ui/TopBar";
-import { HubStatusBanner } from "@/components/Hub/HubStatusBanner";
 import { useResQ } from "@/lib/store";
+import dynamic from "next/dynamic";
+
+const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
+  ssr: false,
+});
 
 const TYPE_META: Record<string, { th: string; bg: string }> = {
   hub_connected:         { th: "hub up",        bg: "bg-status-info" },

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useResQ } from "@/lib/store";
-import { connectHub, disconnectHub, isWebSerialSupported } from "@/lib/hubBridge";
+import { connectHub, disconnectHub, isWebSerialSupported, sendCommand } from "@/lib/hubBridge";
 
 const BOOT_WAIT_MS = 20_000;
 
@@ -86,6 +86,11 @@ export function HubStatusBanner() {
             )}
             <span>rx <span className="font-mono text-app-text">{hub.loraPacketsReceived}</span></span>
             <span className="text-app-muted">last {timeAgo(hub.lastHeartbeat)}</span>
+            {hub.wifi?.connected && (
+              <span className="text-app-muted" title={`SSID ${hub.wifi.ssid} · ${hub.wifi.ip} · RSSI ${hub.wifi.rssi}dBm`}>
+                wifi <span className="font-mono text-app-text">{hub.wifi.ip}</span>
+              </span>
+            )}
             {hub.loraReady === false && (
               <span className="pill bg-triage-yellow text-app-bg" title={hub.loraLastError ?? "SX1278 not detected on SPI"}>
                 LoRa offline
@@ -94,6 +99,7 @@ export function HubStatusBanner() {
             {hub.emergencyMode && (
               <span className="pill bg-triage-red">Emergency</span>
             )}
+            <OtaInline />
           </>
         )}
 
@@ -105,6 +111,9 @@ export function HubStatusBanner() {
           <span className="text-status-warn">WebSerial requires Chrome / Edge</span>
         )}
       </div>
+
+      {/* OTA controls (only when connected) */}
+      {hub.state === "connected" && <OtaControls />}
 
       {/* Right: controls */}
       <div className="flex items-stretch border-l border-app-divider">
@@ -132,6 +141,73 @@ export function HubStatusBanner() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// OTA: status pill in the middle + Check / Install buttons on the right.
+// All driven by ota_status events from MainNode; the operator doesn't see
+// anything unless they manually trigger a check or the periodic check
+// found a new release.
+// ----------------------------------------------------------------------------
+function OtaInline() {
+  const ota = useResQ((s) => s.hub.ota);
+  if (!ota) return null;
+
+  if (ota.stage === "checking") {
+    return <span className="text-app-muted">ota <span className="text-status-warn animate-pulse">checking…</span></span>;
+  }
+  if (ota.stage === "flashing") {
+    return <span className="text-app-muted">ota <span className="text-status-warn animate-pulse">flashing</span></span>;
+  }
+  if (ota.stage === "error") {
+    return <span className="text-status-err" title={ota.msg ?? ""}>ota failed</span>;
+  }
+  if (ota.stage === "disabled") {
+    return <span className="text-app-muted" title={ota.msg ?? ""}>ota disabled</span>;
+  }
+  if (ota.stage === "checked" && ota.available) {
+    return (
+      <span className="text-app-muted">
+        ota <span className="pill bg-accent-pressed text-white">{ota.latest} ready</span>
+      </span>
+    );
+  }
+  if (ota.stage === "checked" && !ota.available) {
+    return <span className="text-app-muted">ota <span className="text-status-ok">up to date</span></span>;
+  }
+  return null;
+}
+
+function OtaControls() {
+  const ota = useResQ((s) => s.hub.ota);
+  const wifi = useResQ((s) => s.hub.wifi);
+  const busy = ota?.stage === "checking" || ota?.stage === "flashing";
+
+  return (
+    <div className="flex items-stretch border-l border-app-divider">
+      <button
+        onClick={() => void sendCommand({ c: "ota_check" })}
+        disabled={busy || !wifi?.connected}
+        className="px-3 hover:bg-app-raised disabled:opacity-40 text-2xs tracking-wider uppercase text-app-dim hover:text-app-text"
+        title={wifi?.connected ? "Re-check GitHub for new firmware" : "No WiFi — set WIFI_SSID in secrets.h"}
+      >
+        OTA check
+      </button>
+      {ota?.available && (
+        <button
+          onClick={() => {
+            if (confirm(`Flash ${ota.latest} now? Device will reboot.`)) {
+              void sendCommand({ c: "ota_install" });
+            }
+          }}
+          disabled={busy}
+          className="px-3 bg-accent-pressed hover:bg-accent disabled:opacity-40 text-2xs tracking-wider uppercase text-white font-semibold"
+        >
+          Install {ota.latest}
+        </button>
+      )}
     </div>
   );
 }

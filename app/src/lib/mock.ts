@@ -80,7 +80,7 @@ export function startMockStream() {
       if (existing) {
         useResQState.sightings[target] = {
           ...existing,
-          position: { lat: jitter(anchorList[0].position.lat, 0.0015), lng: jitter(anchorList[0].position.lng, 0.0015) },
+          position: anchorList[0]?.position ? { lat: jitter(anchorList[0].position.lat, 0.0015), lng: jitter(anchorList[0].position.lng, 0.0015) } : undefined,
         };
       }
     }

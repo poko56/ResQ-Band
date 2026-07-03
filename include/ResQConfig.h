@@ -72,29 +72,32 @@
   #define BOARD_NAME      "ResQ-BandNode"
   #define DEVICE_TYPE_ID  0x01
 
-  // ESP32-C3 has 1 SPI peripheral - LoRa and UWB share the bus, different CS
-  #define PIN_LORA_SCK    4
-  #define PIN_LORA_MISO   5
-  #define PIN_LORA_MOSI   6
-  #define PIN_LORA_SS     7
-  #define PIN_LORA_RST    8
-  #define PIN_LORA_DIO0   9
+  // ESP32 DevKit V1 (classic) - plenty of GPIOs.
+  // LoRa SPI uses VSPI default pins (18/19/23) to match Pillar/Handheld so
+  // wiring + spare module knowledge transfers across boards.
 
-  // UWB DW3000 (SPI bus shared with LoRa, separate CS)
-  #define PIN_UWB_SS      10
-  #define PIN_UWB_IRQ     18
-  #define PIN_UWB_RST     19
+  // LoRa SX1278 - VSPI bus
+  #define PIN_LORA_SCK    18
+  #define PIN_LORA_MISO   19
+  #define PIN_LORA_MOSI   23
+  #define PIN_LORA_SS     5
+  #define PIN_LORA_RST    14
+  #define PIN_LORA_DIO0   2
 
-  // I2C for MPU6050 (accel/gyro) + MAX30102 (HR/SpO2)
-  #define PIN_I2C_SDA     0
-  #define PIN_I2C_SCL     1
-  #define PIN_MPU_INT     21   // tap + free-fall hardware interrupt
-  #define PIN_MAX_INT     20   // ALSO used as VBAT_ADC - read-only, mux ok
+  // UWB DW3000 - shares SPI bus with LoRa, separate CS
+  #define PIN_UWB_SS      4
+  #define PIN_UWB_IRQ     33
+  #define PIN_UWB_RST     32
+
+  // I2C for MPU6050 + MAX30102 (default I2C pins on classic ESP32)
+  #define PIN_I2C_SDA     21
+  #define PIN_I2C_SCL     22
+  #define PIN_MPU_INT     27   // optional - polling works fine
 
   // User-facing IO
-  #define PIN_BUZZER      3
-  #define PIN_LED_STATUS  2
-  #define PIN_VBAT_ADC    20   // 2x 100k divider -> ADC1_CH0 on C3
+  #define PIN_BUZZER      25
+  #define PIN_LED_STATUS  13   // onboard LED on most ESP32 DevKit V1
+  #define PIN_VBAT_ADC    34   // input-only ADC1_CH6
 
   // Default band index (override via -D BAND_INDEX=1 in env per unit)
   #ifndef BAND_INDEX
@@ -166,4 +169,62 @@
 
 #ifndef FW_VERSION
   #define FW_VERSION "0.0.0-dev"
+#endif
+
+// ============================================================================
+// OTA configuration (GitHub Releases)
+// ----------------------------------------------------------------------------
+// All non-Band devices opportunistically pull `OTA_BINARY_NAME` from the
+// repository's latest release. Band-Node defaults to OTA off because the
+// WiFi modem is the single biggest battery drain on the wrist - flash it
+// over USB instead.
+// ============================================================================
+
+#ifndef OTA_REPO_OWNER
+  #define OTA_REPO_OWNER "poko56"
+#endif
+#ifndef OTA_REPO_NAME
+  #define OTA_REPO_NAME  "ResQ-Band"
+#endif
+
+// How often the firmware re-checks GitHub for a new release while running.
+// 6 hours by default; first check happens shortly after boot.
+#ifndef OTA_CHECK_INTERVAL_MS
+  #define OTA_CHECK_INTERVAL_MS (6UL * 60UL * 60UL * 1000UL)
+#endif
+
+#if defined(DEVICE_TYPE_MAIN_NODE)
+  #define OTA_BINARY_NAME "main_node.bin"
+  #ifndef ENABLE_OTA
+    #define ENABLE_OTA 1
+  #endif
+#elif defined(DEVICE_TYPE_RESQ_PIN)
+  #define OTA_BINARY_NAME "resq_pin.bin"
+  #ifndef ENABLE_OTA
+    #define ENABLE_OTA 1
+  #endif
+#elif defined(DEVICE_TYPE_RESQ_NODE)
+  #define OTA_BINARY_NAME "resq_node.bin"
+  #ifndef ENABLE_OTA
+    #define ENABLE_OTA 1
+  #endif
+#elif defined(DEVICE_TYPE_BAND_NODE)
+  #define OTA_BINARY_NAME "band_node.bin"
+  // Battery-sensitive: off by default. Pass -D ENABLE_OTA=1 to opt in.
+  #ifndef ENABLE_OTA
+    #define ENABLE_OTA 0
+  #endif
+#endif
+
+// WiFi credentials live in `include/secrets.h` (gitignored).
+// Falling back to empty strings makes builds succeed without it - the
+// OTA layer treats an empty SSID as "skip the WiFi attempt".
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#endif
+#ifndef WIFI_SSID
+  #define WIFI_SSID ""
+#endif
+#ifndef WIFI_PASSWORD
+  #define WIFI_PASSWORD ""
 #endif

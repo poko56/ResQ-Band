@@ -27,12 +27,14 @@ function makeSurvivorIcon(label: string, color: string, sos: boolean) {
 
 function PlacementHandler() {
   const placementMode = useResQ((s) => s.placementMode);
-  const placeAnchor = useResQ((s) => s.placeAnchor);
+  const setAnchorPosition = useResQ((s) => s.setAnchorPosition);
+  const setPlacementMode = useResQ((s) => s.setPlacementMode);
 
   useMapEvents({
     click(e) {
-      if (placementMode === "anchor") {
-        placeAnchor({ lat: e.latlng.lat, lng: e.latlng.lng });
+      if (placementMode !== "none") {
+        setAnchorPosition(placementMode, { lat: e.latlng.lat, lng: e.latlng.lng });
+        setPlacementMode("none");
       }
     },
   });
@@ -45,13 +47,13 @@ function CenterOnFirstAnchor() {
   const anchors = useResQ((s) => s.anchors);
 
   useEffect(() => {
-    const list = Object.values(anchors);
+    const list = Object.values(anchors).filter((a) => a.position);
     if (list.length === 0) return;
     if (list.length === 1) {
-      map.setView([list[0]!.position.lat, list[0]!.position.lng], 18);
+      map.setView([list[0]!.position!.lat, list[0]!.position!.lng], 18);
       return;
     }
-    const bounds = L.latLngBounds(list.map((a) => [a.position.lat, a.position.lng]));
+    const bounds = L.latLngBounds(list.map((a) => [a.position!.lat, a.position!.lng]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 19 });
   }, [anchors, map]);
 
@@ -64,7 +66,7 @@ export default function LiveMap() {
   const sightings = useResQ((s) => s.sightings);
   const placementMode = useResQ((s) => s.placementMode);
 
-  const anchorMarkers = useMemo(() => Object.values(anchors), [anchors]);
+  const anchorMarkers = useMemo(() => Object.values(anchors).filter(a => a.position), [anchors]);
   const survivorMarkers = useMemo(() => {
     return Object.values(sightings)
       .filter((s) => s.position && s.status !== "rescued" && s.status !== "silent")
@@ -77,7 +79,7 @@ export default function LiveMap() {
         center={[DEFAULT_CENTER.lat, DEFAULT_CENTER.lng]}
         zoom={17}
         className="h-full w-full"
-        style={{ cursor: placementMode === "anchor" ? "crosshair" : "" }}
+        style={{ cursor: placementMode !== "none" ? "crosshair" : "" }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -90,19 +92,19 @@ export default function LiveMap() {
 
         {anchorMarkers.map((a) => (
           <Fragment key={a.id}>
-            <Marker position={[a.position.lat, a.position.lng]} icon={makeAnchorIcon(a.name)}>
+            <Marker position={[a.position!.lat, a.position!.lng]} icon={makeAnchorIcon(a.name)}>
               <Popup>
                 <div className="text-xs">
                   <div className="font-bold">{a.name} {!a.online && <span className="text-red-500">(Offline)</span>}</div>
                   <div className="font-mono text-slate-500">{a.id}</div>
                   <div>
-                    {a.position.lat.toFixed(6)}, {a.position.lng.toFixed(6)}
+                    {a.position!.lat.toFixed(6)}, {a.position!.lng.toFixed(6)}
                   </div>
                 </div>
               </Popup>
             </Marker>
             <Circle
-              center={[a.position.lat, a.position.lng]}
+              center={[a.position!.lat, a.position!.lng]}
               radius={150}
               pathOptions={{ color: a.online ? "#f97316" : "#64748b", weight: 1, opacity: 0.4, fillOpacity: 0.05 }}
             />
@@ -136,8 +138,8 @@ export default function LiveMap() {
         })}
       </MapContainer>
 
-      {placementMode === "anchor" && (
-        <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded bg-orange-500 px-3 py-1 text-xs font-bold text-white shadow-lg">
+      {placementMode !== "none" && (
+        <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 z-[1000] rounded bg-orange-500 px-3 py-1 text-xs font-bold text-white shadow-lg">
           คลิกบนแผนที่เพื่อวางตำแหน่งเสา Anchor
         </div>
       )}

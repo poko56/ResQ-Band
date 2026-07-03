@@ -15,7 +15,7 @@ import type {
   Wristband,
 } from "./types";
 
-type PlacementMode = "none" | "anchor";
+type PlacementMode = "none" | string; // "none" or anchorId
 
 const TRIAGE_FROM_BYTE: Record<number, TriageLevel> = { 0: "green", 1: "yellow", 2: "red", 3: "black" };
 
@@ -252,6 +252,16 @@ export const useResQ = create<ResQState>((set, get) => ({
       if (matched) {
         nextAnchors[matched.id] = { ...matched, online: true, lastSeen: Date.now(),
           id: matched.id === ev.pin_id ? matched.id : matched.id /* keep slot id */ };
+      } else {
+        const id = ev.pin_id || nanoid(6).toUpperCase();
+        nextAnchors[id] = {
+          id,
+          pinIndex: ev.pin,
+          name: `Pin-${ev.pin}`,
+          placedAt: Date.now(),
+          online: true,
+          lastSeen: Date.now(),
+        };
       }
       // Update RSSI per pin on each band's sighting
       const nextSightings = { ...s.sightings };
@@ -410,7 +420,7 @@ export const useResQ = create<ResQState>((set, get) => ({
 
       for (const id in nextAnchors) {
         const a = nextAnchors[id];
-        if (a.online && a.lastSeen && now - a.lastSeen > 30000) {
+        if (a.online && a.lastSeen && now - a.lastSeen > 12000) {
           nextAnchors[id] = { ...a, online: false };
           changed = true;
         }
@@ -419,7 +429,7 @@ export const useResQ = create<ResQState>((set, get) => ({
       for (const id in nextSightings) {
         const sg = nextSightings[id];
         if (sg.status === "active" || sg.status === "sos" || sg.status === "assigned") {
-          if (now - sg.lastSeen > 60000) {
+          if (now - sg.lastSeen > 30000) {
             nextSightings[id] = { ...sg, status: "silent" };
             changed = true;
           }

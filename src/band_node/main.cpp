@@ -24,6 +24,8 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include "ResQConfig.h"
 #include "ResQProtocol.h"
 
@@ -243,6 +245,10 @@ static bool should_tx_heartbeat(uint32_t now) {
 // Setup / loop
 // ============================================================================
 void setup() {
+  // LoRa TX surge dips VCC under cheap USB power -> brown-out reset loop.
+  // Disable BOD so we boot reliably; re-enable in production with proper PSU.
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   Serial.begin(115200);
   delay(SETUP_DELAY_MS);
 

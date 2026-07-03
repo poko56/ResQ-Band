@@ -2,11 +2,15 @@
 
 import { useRef, useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
-import { HubStatusBanner } from "@/components/Hub/HubStatusBanner";
+import dynamic from "next/dynamic";
 import { TagInput } from "@/components/ui/TagInput";
 import { useResQ } from "@/lib/store";
 import { compressImageFile, approxKb } from "@/lib/photo";
 import type { BandRole } from "@/lib/types";
+
+const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
+  ssr: false,
+});
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
 const COMMON_ALLERGIES   = ["เพนนิซิลลิน", "อาหารทะเล", "ถั่ว", "นม", "ไข่", "ฝุ่น"];

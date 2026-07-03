@@ -66,7 +66,7 @@ export interface Anchor {
   id: string;                // Pin device hex ID once known, else internal id
   pinIndex: number;          // 0..3 - which physical pin this is
   name: string;              // human-friendly label
-  position: LatLng;          // operator-placed coordinates
+  position?: LatLng;         // operator-placed coordinates
   placedAt: number;
   online: boolean;
   lastSeen?: number;
@@ -161,17 +161,34 @@ export interface HubStatus {
   loraLastError?: string;     // last lora_init_failed message
   connectStartedAt?: number;  // ms when current "connecting" phase began
   connectAttempts?: number;   // ping attempts sent so far during boot wait
+  // OTA state pushed by ota_status events
+  ota?: {
+    stage: OtaStage;
+    current?: string;
+    latest?: string;
+    available?: boolean;
+    url?: string;
+    msg?: string;
+    updatedAt?: number;
+  };
+  // WiFi state pushed by wifi_status events
+  wifi?: { connected: boolean; ssid?: string; ip?: string; rssi?: number };
 }
 
 // ----------------------------------------------------------------------------
 // Wire protocol (MainNode -> Web)
 // ----------------------------------------------------------------------------
+export type OtaStage = "idle" | "checking" | "checked" | "flashing" | "error" | "disabled";
+
 export type HubEvent =
   | { t: "hello"; fw: string; board: string; main_id: string; lora_mhz: number; sf: number; tdma_cycle_ms: number; lora_ready?: boolean; ts: number }
   | { t: "stats"; cycle: number; uptime_s: number; rx: number; dropped: number; bands: number; heap: number; lora_ready?: boolean; ts: number }
   | { t: "beacon"; cycle: number; flags: number; ts: number }
   | { t: "lora_init_failed"; msg: string; pins?: Record<string, number>; ts: number }
   | { t: "lora_ready"; msg: string; ts: number }
+  | { t: "wifi_status"; connected: boolean; ssid?: string; ip?: string; rssi?: number; ts: number }
+  | { t: "ota_status"; stage: OtaStage; current?: string; latest?: string; available?: boolean; url?: string; msg?: string; ts: number }
+  | { t: "pin_button"; pin_id: string; ts: number }
   | { t: "band"; id: string; ptype: string; seq: number; triage: number; hr: number; spo2: number; batt: number; g_x10: number; rssi: number; snr: number; ts: number }
   | { t: "pin_sighting"; pin: number; pin_id: string; sightings: { band: string; rssi: number; snr: number; age_ms: number }[]; rssi: number; snr: number; ts: number }
   | { t: "assignment"; band: string; score: number; pin: number; rssi: number; triage: number; reason: AssignReason; ts: number }
@@ -187,4 +204,7 @@ export type HubCommand =
   | { c: "manual_priority"; band: string; boost: number }
   | { c: "mark_rescued"; band: string }
   | { c: "clear_alarm" }
-  | { c: "ping" };
+  | { c: "ping" }
+  | { c: "ota_check" }
+  | { c: "ota_install" }
+  | { c: "identify_pin"; pin_id: string; duration_ms?: number };

@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { TopBar } from "@/components/ui/TopBar";
-import { HubStatusBanner } from "@/components/Hub/HubStatusBanner";
 import { useResQ } from "@/lib/store";
+
+const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
+  ssr: false,
+});
 import { TRIAGE_COLORS, TRIAGE_LABELS_TH } from "@/lib/triage";
 import type { Sighting, Wristband } from "@/lib/types";
 

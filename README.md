@@ -164,8 +164,73 @@ RST      ───→   GPIO 27
 
 * **Embedded C/C++:** พัฒนาผ่าน VS Code (PlatformIO) หรือ Arduino IDE
 * **Database & Dashboard:** Firebase Hosting (static export) สำหรับเว็บ dispatcher; WebSerial (Chrome/Edge) bridge ระหว่าง browser ↔ MainNode ผ่าน USB
-* **Firmware deploy:** `pio run -e <env> -t upload` แบบปกติ — เสียบ USB แล้ว flash ตรงๆ (ไม่มี OTA)
+* **Firmware deploy:** USB flash ตรง ๆ (`pio run -e <env> -t upload`) **หรือ** OTA ผ่าน GitHub Releases (ดูหัวข้อถัดไป)
 * **3D CAD:** SolidWorks หรือ Fusion 360 สำหรับออกแบบเคสอุปกรณ์
+
+---
+
+## 🔄 OTA via GitHub Releases
+
+ระบบ deploy firmware ใหม่ทั้งฝูง โดยไม่ต้องถอดอุปกรณ์เข้าคอม
+
+### 🗺️ Flow
+
+```
+git tag v0.3.0 + git push --tags
+        │
+        ▼
+GitHub Actions (.github/workflows/release.yml)
+        │  build ทั้ง 4 envs
+        │  upload main_node.bin / band_node.bin / resq_pin.bin / resq_node.bin
+        ▼
+Release v0.3.0 (พร้อม manifest.json)
+        │
+        ├──► MainNode/Pin/Node: WiFi → GitHub API releases/latest
+        │      ถ้า tag ใหม่กว่า FW_VERSION → HTTPUpdate → flash → reboot
+        │
+        └──► Band-Node: USB-only (battery-sensitive, default `ENABLE_OTA=0`)
+```
+
+### ⚙️ Setup ครั้งเดียว
+
+1. Copy `include/secrets.example.h` → `include/secrets.h` (gitignored แล้ว)
+2. ใส่ WiFi credentials:
+   ```cpp
+   #define WIFI_SSID     "MyHomeWiFi"
+   #define WIFI_PASSWORD "MyPassword"
+   ```
+3. Build + flash อุปกรณ์ครั้งแรก: `pio run -e main_node -t upload`
+4. หลังจากนี้ MainNode/Pin/Node จะเช็คอัพเดททุก 6 ชั่วโมง
+
+### 🚀 ปล่อย firmware version ใหม่
+
+```bash
+# bump FW_VERSION ใน platformio.ini ก่อน (เช่น "0.3.0")
+git tag v0.3.0
+git push --tags
+# → GitHub Actions build, attach .bin, สร้าง Release อัตโนมัติ
+# → MainNode จะรู้ตอน check ครั้งต่อไป (web banner ขึ้น "Install v0.3.0")
+```
+
+### 🖥️ Manual trigger จากเว็บ
+
+- เปิดเว็บ dispatcher → ต่อ USB → banner มีปุ่ม **OTA check**
+- ถ้ามี version ใหม่ → ปุ่ม **Install v0.x.y** ขึ้น
+- กดยืนยัน → MainNode pull .bin → flash → reboot (web reconnect อัตโนมัติ)
+
+### 🔧 Per-device toggle
+
+`ENABLE_OTA` macro ใน `include/ResQConfig.h`:
+- MainNode/Pin/Node = 1 (default)
+- Band-Node = 0 (default — กิน battery)
+- Override ใน `build_flags`: `-D ENABLE_OTA=0` หรือ `-D ENABLE_OTA=1`
+
+### 🔒 ความปลอดภัย
+
+- ตอนนี้ใช้ `WiFiClientSecure::setInsecure()` — ข้าม cert verification (เร็ว/ง่าย/ปลอดภัยน้อยกว่า)
+- Production ควร pin cert ของ `api.github.com` + `objects.githubusercontent.com`
+- HTTPUpdate verify MD5/SHA ของ .bin ก่อน flash อยู่แล้ว
+- A/B OTA partition: flash ลง slot สำรอง → ถ้า boot ใหม่ fail → rollback อัตโนมัติ
 
 ---
 

@@ -20,8 +20,14 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include "ResQConfig.h"
 #include "ResQProtocol.h"
+#if ENABLE_OTA
+  #include <WiFi.h>
+  #include "ResQOTA.h"
+#endif
 
 // ----------------------------------------------------------------------------
 // Tunables
@@ -55,6 +61,15 @@ static bool          g_beacon_seen        = false;
 static uint32_t      g_last_tx_cycle_id   = 0;
 static uint32_t      g_total_heard        = 0;
 static LocalSighting g_table[ResQ::PIN_SIGHTING_MAX] = {};
+#if ENABLE_OTA
+static uint32_t      g_next_ota_check_ms  = 0;
+#endif
+
+// Identify / Button state
+#define PIN_BUTTON 0
+static uint32_t      g_identify_until_ms  = 0;
+static bool          g_last_btn_state     = HIGH;
+static uint32_t      g_last_btn_debounce_ms = 0;
 
 // ----------------------------------------------------------------------------
 // LoRa init (non-fatal, same pattern as MainNode/Band)
@@ -151,6 +166,18 @@ static void on_lora_rx(int packet_size) {
     if (!ResQ::verify_sos_packet(pkt)) return;
     record_sighting(pkt.device_id, (int16_t)rssi, snr);
     ++g_total_heard;
+    return;
+  }
+
+  // Identify command
+  if (ptype == ResQ::PKT_PIN_IDENTIFY_CMD && n >= sizeof(ResQ::PinIdentifyCmdPacket)) {
+    ResQ::PinIdentifyCmdPacket pkt;
+    memcpy(&pkt, buf, sizeof(pkt));
+    if (ResQ::verify_pin_identify_cmd(pkt) && pkt.pin_device_id == g_device_id) {
+      g_identify_until_ms = millis() + pkt.duration_ms;
+      Serial.printf("[CMD] identify for %u ms\n", pkt.duration_ms);
+    }
+    return;
   }
 }
 
@@ -221,11 +248,17 @@ static void tx_sighting_report() {
 // Setup / loop
 // ============================================================================
 void setup() {
+  // Cheap USB power + LoRa current spikes -> VCC dip -> brown-out reset loop.
+  // Disable BOD so we boot reliably; revert when running off proper PSU/battery.
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   Serial.begin(115200);
   delay(200);
 
   pinMode(PIN_LED_STATUS, OUTPUT);
   digitalWrite(PIN_LED_STATUS, LOW);
+  
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
 
   g_device_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
 
@@ -240,6 +273,27 @@ void setup() {
   Serial.printf("[LoRa] init=%s\n", g_lora_ready ? "OK" : "FAIL (will retry)");
 
   if (g_lora_ready) LoRa.onReceive(on_lora_rx);
+
+#if ENABLE_OTA
+  // Background OTA: try to join WiFi and pull the latest firmware on first
+  // boot, then re-check every OTA_CHECK_INTERVAL_MS. Pins are mast-mounted
+  // and hard to reach, so this is the only way to update them remotely.
+  // ensure_wifi blocks up to 8s on first boot; LoRa RX continues in ISR.
+  if (strlen(WIFI_SSID) > 0) {
+    Serial.printf("[WiFi] joining %s ...\n", WIFI_SSID);
+    if (ResQOTA::ensure_wifi(WIFI_SSID, WIFI_PASSWORD, 8000)) {
+      Serial.printf("[WiFi] %s rssi=%d ip=%s\n",
+                    WIFI_SSID, WiFi.RSSI(),
+                    WiFi.localIP().toString().c_str());
+      // First check 5s into the run so LoRa sync has a moment first.
+      g_next_ota_check_ms = millis() + 5000;
+    } else {
+      Serial.println("[WiFi] join failed - OTA disabled this boot");
+    }
+  } else {
+    Serial.println("[OTA] no WIFI_SSID in secrets.h - skipping");
+  }
+#endif
 }
 
 void loop() {
@@ -255,19 +309,67 @@ void loop() {
     }
   }
 
+  // --- Button Check --------------------------------------------------------
+  bool btn_state = digitalRead(PIN_BUTTON);
+  if (btn_state != g_last_btn_state) {
+    g_last_btn_debounce_ms = now;
+  }
+  if ((now - g_last_btn_debounce_ms) > 50) {
+    static bool confirmed_state = HIGH;
+    if (btn_state != confirmed_state) {
+      confirmed_state = btn_state;
+      if (confirmed_state == LOW) { // Pressed
+        ResQ::PinButtonAckPacket ack;
+        ResQ::fill_pin_button_ack(ack, g_device_id);
+        
+        digitalWrite(PIN_LED_STATUS, HIGH);
+        LoRa.idle();
+        if (LoRa.beginPacket()) {
+          LoRa.write(reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
+          LoRa.endPacket();
+        }
+        LoRa.receive();
+        digitalWrite(PIN_LED_STATUS, LOW);
+        
+        Serial.println("[BTN] identify ack sent");
+        g_identify_until_ms = 0; // Clear identify blink if active
+      }
+    }
+  }
+  g_last_btn_state = btn_state;
+
   // --- Status LED ----------------------------------------------------------
+  // Identify mode:   10 Hz blink
   // No radio:        slow 1 Hz blink
   // No beacon yet:   double-blink (looking for MainNode)
   // Beacon locked:   off most of the time, brief on at TX time (set above)
-  if (!g_lora_ready) {
+  if (g_identify_until_ms > 0 && now < g_identify_until_ms) {
+    digitalWrite(PIN_LED_STATUS, ((now / 50) & 1) ? HIGH : LOW);
+  } else if (!g_lora_ready) {
     digitalWrite(PIN_LED_STATUS, ((now / 500) & 1) ? HIGH : LOW);
   } else if (!g_beacon_seen) {
     const uint32_t phase = now % 1000;
     digitalWrite(PIN_LED_STATUS, (phase < 80 || (phase >= 200 && phase < 280)) ? HIGH : LOW);
+  } else {
+    digitalWrite(PIN_LED_STATUS, LOW);
   }
 
   // --- TDMA-gated report ---------------------------------------------------
   if (should_tx_report(now)) {
     tx_sighting_report();
   }
+
+#if ENABLE_OTA
+  // --- Silent background OTA pull -----------------------------------------
+  if (g_next_ota_check_ms > 0 &&
+      now >= g_next_ota_check_ms &&
+      WiFi.status() == WL_CONNECTED) {
+    g_next_ota_check_ms = now + OTA_CHECK_INTERVAL_MS;
+    Serial.println("[OTA] checking for updates...");
+    // run_once returns only on no-update / failure (success reboots us).
+    ResQOTA::run_once(WIFI_SSID, WIFI_PASSWORD,
+                      OTA_REPO_OWNER, OTA_REPO_NAME, OTA_BINARY_NAME,
+                      FW_VERSION);
+  }
+#endif
 }

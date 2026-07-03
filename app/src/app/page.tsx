@@ -4,14 +4,21 @@ import { TopBar } from "@/components/ui/TopBar";
 import { TriageStats } from "@/components/Triage/TriageStats";
 import { WristbandList } from "@/components/Roster/WristbandList";
 import { MapPanel } from "@/components/Map/MapPanel";
-import { HubStatusBanner } from "@/components/Hub/HubStatusBanner";
-import { useHubBridge } from "@/lib/hubBridge";
+import dynamic from "next/dynamic";
+
+const HubBridgeClient = dynamic(() => import("@/components/Hub/HubBridgeClient"), {
+  ssr: false,
+});
+
+const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
+  ssr: false,
+});
 
 export default function DashboardPage() {
-  useHubBridge();
 
   return (
     <div className="flex h-screen flex-col bg-app-bg">
+      <HubBridgeClient />
       <TopBar />
       <HubStatusBanner />
 

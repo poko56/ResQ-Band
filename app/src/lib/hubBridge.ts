@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { useResQ, _registerSendCommand } from "./store";
 import type { HubCommand, HubEvent } from "./types";
 import { startMockStream, stopMockStream } from "./mock";
+import { initFirebaseSync } from "./sync";
 
 const SERIAL_BAUD        = 115200;
 const HEARTBEAT_WATCH_MS = 8000;       // mark disconnected if no event for this long
@@ -219,6 +220,28 @@ function dispatchHubEvent(ev: HubEvent): void {
       s.setHubInfo({ loraReady: true, loraLastError: undefined });
       break;
 
+    case "wifi_status":
+      s.setHubInfo({ wifi: { connected: ev.connected, ssid: ev.ssid, ip: ev.ip, rssi: ev.rssi } });
+      break;
+
+    case "ota_status":
+      s.setHubInfo({
+        ota: {
+          stage:     ev.stage,
+          current:   ev.current ?? s.hub.ota?.current,
+          latest:    ev.latest  ?? s.hub.ota?.latest,
+          available: ev.available ?? s.hub.ota?.available,
+          url:       ev.url     ?? s.hub.ota?.url,
+          msg:       ev.msg,
+          updatedAt: Date.now(),
+        },
+      });
+      break;
+
+    case "pin_button":
+      s.setPlacementMode(ev.pin_id);
+      break;
+
     case "beacon":
       s.setHubInfo({ cycleId: ev.cycle, emergencyMode: (ev.flags & 0x01) !== 0 });
       break;
@@ -277,19 +300,26 @@ export function useHubBridge() {
   const demoMode = useResQ((s) => s.hub.demoMode);
 
   useEffect(() => {
+    let unsubSync: () => void = () => {};
+    initFirebaseSync().then((unsub) => {
+      unsubSync = unsub;
+    }).catch(console.error);
     if (demoMode) {
       startMockStream();
-      return () => stopMockStream();
+      return () => {
+        stopMockStream();
+        unsubSync();
+      };
     }
     return () => {
-      // Only cleanup if we actually had something running
+      unsubSync();
     };
   }, [demoMode]);
 
   useEffect(() => {
     const sweepTimer = setInterval(() => {
       useResQ.getState().sweepStaleNodes();
-    }, 5000);
+    }, 1500);
 
     // Cleanup on app unmount
     return () => {

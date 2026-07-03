@@ -21,6 +21,10 @@
 
 #include "ResQConfig.h"
 #include "ResQProtocol.h"
+#if ENABLE_OTA
+  #include <WiFi.h>
+  #include "ResQOTA.h"
+#endif
 
 // ----------------------------------------------------------------------------
 // State
@@ -71,6 +75,12 @@ static uint32_t g_last_led_ms          = 0;
 static uint32_t g_last_rx_flash_ms     = 0;
 static uint32_t g_last_tx_flash_ms     = 0;
 static uint32_t g_last_host_msg_ms     = 0;   // last serial cmd from web
+#if ENABLE_OTA
+static bool     g_wifi_attempted       = false;
+static uint32_t g_next_ota_check_ms    = 0;
+static String   g_ota_latest_tag;
+static String   g_ota_download_url;
+#endif
 static uint32_t g_rx_count             = 0;
 static uint32_t g_rx_dropped           = 0;
 static uint32_t g_sos_pending_until_ms = 0;   // local alarm deadline
@@ -170,6 +180,28 @@ void setup() {
     warn["pins"]["dio0"] = PIN_LORA_DIO0;
     send_json_event(warn);
   }
+
+#if ENABLE_OTA
+  // Best-effort WiFi join. Failure is non-fatal - LoRa keeps working.
+  if (strlen(WIFI_SSID) > 0) {
+    g_wifi_attempted = true;
+    if (ResQOTA::ensure_wifi(WIFI_SSID, WIFI_PASSWORD, 8000)) {
+      // First OTA check 5s after boot, then OTA_CHECK_INTERVAL_MS apart.
+      g_next_ota_check_ms = millis() + 5000;
+    }
+    // Tell the web what happened either way.
+    JsonDocument w;
+    w["t"]         = "wifi_status";
+    w["connected"] = WiFi.status() == WL_CONNECTED;
+    w["ssid"]      = WIFI_SSID;
+    if (WiFi.status() == WL_CONNECTED) {
+      w["ip"]   = WiFi.localIP().toString();
+      w["rssi"] = WiFi.RSSI();
+    }
+    w["ts"] = (uint32_t)millis();
+    send_json_event(w);
+  }
+#endif
 }
 
 // ============================================================================
@@ -177,6 +209,31 @@ void setup() {
 // ============================================================================
 void loop() {
   const uint32_t now = millis();
+
+#if ENABLE_OTA
+  // --- Background OTA check (silent unless update available) ---------------
+  if (g_wifi_attempted &&
+      WiFi.status() == WL_CONNECTED &&
+      g_next_ota_check_ms > 0 &&
+      now >= g_next_ota_check_ms) {
+    g_next_ota_check_ms = now + OTA_CHECK_INTERVAL_MS;
+    auto info = ResQOTA::check_latest(OTA_REPO_OWNER, OTA_REPO_NAME, OTA_BINARY_NAME);
+    if (info.ok) {
+      g_ota_latest_tag   = info.tag_name;
+      g_ota_download_url = info.binary_url;
+      const bool avail = ResQOTA::is_newer(info.tag_name.c_str(), FW_VERSION);
+      JsonDocument d;
+      d["t"]         = "ota_status";
+      d["current"]   = FW_VERSION;
+      d["latest"]    = info.tag_name;
+      d["available"] = avail;
+      d["url"]       = info.binary_url;
+      d["stage"]     = "checked";
+      d["ts"]        = (uint32_t)millis();
+      send_json_event(d);
+    }
+  }
+#endif
 
   // --- Periodic LoRa retry if init failed at boot ---------------------------
   if (!g_lora_ready && now - g_last_lora_retry_ms >= 5000) {
@@ -395,6 +452,20 @@ static void on_lora_rx(int packet_size) {
     char bid[9]; snprintf(bid, sizeof(bid), "%08X", pkt.device_id);
     out["band"]   = bid;
     out["status"] = pkt.status;
+    out["ts"]     = (uint32_t)millis();
+    send_json_event(out);
+  }
+  // -- PIN_BUTTON_ACK --
+  else if (ptype == ResQ::PKT_PIN_BUTTON_ACK && n >= sizeof(ResQ::PinButtonAckPacket)) {
+    ResQ::PinButtonAckPacket pkt;
+    memcpy(&pkt, buf, sizeof(pkt));
+    if (!ResQ::verify_pin_button_ack(pkt)) { g_rx_dropped++; return; }
+    g_rx_count++;
+
+    JsonDocument out;
+    out["t"]      = "pin_button";
+    char pid[9]; snprintf(pid, sizeof(pid), "%08X", pkt.pin_device_id);
+    out["pin_id"] = pid;
     out["ts"]     = (uint32_t)millis();
     send_json_event(out);
   } else {
@@ -638,6 +709,86 @@ static void handle_serial_command(const char* line, size_t len) {
     g_local_alarm_active = false;
     g_sos_pending_until_ms = 0;
     JsonDocument r; r["t"] = "ack"; r["c"] = "clear_alarm"; send_json_event(r);
+  }
+  else if (!strcmp(cmd, "identify_pin")) {
+    uint32_t pin_id = parse_hex32(doc["pin_id"] | "");
+    uint16_t dur = doc["duration_ms"] | 5000;
+    
+    ResQ::PinIdentifyCmdPacket pkt;
+    ResQ::fill_pin_identify_cmd(pkt, pin_id, dur);
+    LoRa.idle();
+    if (LoRa.beginPacket()) {
+      LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
+      LoRa.endPacket();
+    }
+    LoRa.receive();
+    g_last_tx_flash_ms = millis();
+    
+    JsonDocument r; r["t"] = "ack"; r["c"] = "identify_pin"; send_json_event(r);
+  }
+  else if (!strcmp(cmd, "ota_check")) {
+#if ENABLE_OTA
+    JsonDocument r;
+    r["t"]     = "ota_status";
+    r["stage"] = "checking";
+    r["ts"]    = (uint32_t)millis();
+    send_json_event(r);
+
+    if (!ResQOTA::ensure_wifi(WIFI_SSID, WIFI_PASSWORD, 8000)) {
+      JsonDocument e; e["t"] = "ota_status"; e["stage"] = "error";
+      e["msg"] = "WiFi unavailable"; send_json_event(e);
+    } else {
+      auto info = ResQOTA::check_latest(OTA_REPO_OWNER, OTA_REPO_NAME, OTA_BINARY_NAME);
+      JsonDocument d;
+      d["t"]         = "ota_status";
+      d["stage"]     = "checked";
+      d["current"]   = FW_VERSION;
+      if (info.ok) {
+        g_ota_latest_tag   = info.tag_name;
+        g_ota_download_url = info.binary_url;
+        d["latest"]    = info.tag_name;
+        d["available"] = ResQOTA::is_newer(info.tag_name.c_str(), FW_VERSION);
+        d["url"]       = info.binary_url;
+      } else {
+        d["available"] = false;
+        d["msg"]       = "no matching asset in latest release";
+      }
+      d["ts"] = (uint32_t)millis();
+      send_json_event(d);
+    }
+#else
+    JsonDocument r; r["t"] = "ota_status"; r["stage"] = "disabled";
+    r["msg"] = "ENABLE_OTA=0 at build time"; send_json_event(r);
+#endif
+  }
+  else if (!strcmp(cmd, "ota_install")) {
+#if ENABLE_OTA
+    if (g_ota_download_url.length() == 0) {
+      JsonDocument e; e["t"] = "ota_status"; e["stage"] = "error";
+      e["msg"] = "no candidate - run ota_check first"; send_json_event(e);
+    } else {
+      JsonDocument r;
+      r["t"]     = "ota_status";
+      r["stage"] = "flashing";
+      r["url"]   = g_ota_download_url;
+      r["ts"]    = (uint32_t)millis();
+      send_json_event(r);
+      Serial.flush();
+      // perform_update reboots on success; on failure we resume the loop.
+      auto res = ResQOTA::perform_update(g_ota_download_url);
+      JsonDocument d;
+      d["t"]     = "ota_status";
+      d["stage"] = "error";
+      d["msg"]   = (res == ResQOTA::UPDATE_NO_WIFI) ? "WiFi dropped"
+                 : (res == ResQOTA::UPDATE_HTTP_FAIL) ? "HTTP/flash failed"
+                 : "unknown";
+      d["ts"]    = (uint32_t)millis();
+      send_json_event(d);
+    }
+#else
+    JsonDocument r; r["t"] = "ota_status"; r["stage"] = "disabled";
+    r["msg"] = "ENABLE_OTA=0 at build time"; send_json_event(r);
+#endif
   }
   else if (!strcmp(cmd, "ping")) {
     // Pong carries the same identity payload as hello so the web bridge can

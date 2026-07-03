@@ -29,6 +29,8 @@ enum PacketType : uint8_t {
   PKT_FOUND        = 0x41,  // Node -> Main: outcome of rescue  (FoundPacket)
   PKT_RING_CMD     = 0x50,  // Node -> Band: sound buzzer       (RingCmdPacket)
   PKT_RING_ACK     = 0x51,  // Band -> Node: buzzer started     (RingAckPacket)
+  PKT_PIN_IDENTIFY_CMD = 0x60, // Main -> Pin: rapid blink LED  (PinIdentifyCmdPacket)
+  PKT_PIN_BUTTON_ACK   = 0x61, // Pin -> Main: BOOT button pressed(PinButtonAckPacket)
   // Emergency (uses SOSPacket, distinguished by type)
   PKT_SOS_TAP      = 0x20,  // Band -> Main: 3-tap SOS          (SOSPacket)
   PKT_SOS_FALL     = 0x21,  // Band -> Main: fall detected      (SOSPacket)
@@ -183,6 +185,31 @@ struct __attribute__((packed)) RingAckPacket {
 static_assert(sizeof(RingAckPacket) == 10, "RingAckPacket layout drifted");
 
 // ============================================================================
+// PinIdentifyCmdPacket - MainNode tells Pin to blink its LED rapidly
+// ============================================================================
+struct __attribute__((packed)) PinIdentifyCmdPacket {
+  uint8_t  magic;
+  uint8_t  packet_type;
+  uint8_t  protocol_version;
+  uint32_t pin_device_id;
+  uint16_t duration_ms;
+  uint16_t crc16;
+};
+static_assert(sizeof(PinIdentifyCmdPacket) == 11, "PinIdentifyCmdPacket layout drifted");
+
+// ============================================================================
+// PinButtonAckPacket - Pin tells MainNode its BOOT button was pressed
+// ============================================================================
+struct __attribute__((packed)) PinButtonAckPacket {
+  uint8_t  magic;
+  uint8_t  packet_type;
+  uint8_t  protocol_version;
+  uint32_t pin_device_id;
+  uint16_t crc16;
+};
+static_assert(sizeof(PinButtonAckPacket) == 9, "PinButtonAckPacket layout drifted");
+
+// ============================================================================
 // API
 // ============================================================================
 
@@ -254,6 +281,17 @@ void fill_ring_ack(RingAckPacket& pkt,
                    uint32_t device_id,
                    uint8_t status);
 bool verify_ring_ack(const RingAckPacket& pkt);
+
+// PinIdentifyCmdPacket
+void fill_pin_identify_cmd(PinIdentifyCmdPacket& pkt,
+                           uint32_t pin_device_id,
+                           uint16_t duration_ms);
+bool verify_pin_identify_cmd(const PinIdentifyCmdPacket& pkt);
+
+// PinButtonAckPacket
+void fill_pin_button_ack(PinButtonAckPacket& pkt,
+                         uint32_t pin_device_id);
+bool verify_pin_button_ack(const PinButtonAckPacket& pkt);
 
 // Friendly labels (also used in serial logs)
 const char* triage_label(TriageLevel level);
