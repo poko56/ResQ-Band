@@ -462,6 +462,37 @@ static void on_lora_rx(int packet_size) {
     if (!ResQ::verify_pin_button_ack(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
 
+    // Auto-assign slot
+    int assigned_slot = -1;
+    for (int i = 0; i < TDMA_MAX_PINS; i++) {
+      if (g_pins[i].pin_device_id == pkt.pin_device_id) {
+        assigned_slot = i;
+        break;
+      }
+    }
+    if (assigned_slot < 0) {
+      for (int i = 0; i < TDMA_MAX_PINS; i++) {
+        if (g_pins[i].pin_device_id == 0) {
+          assigned_slot = i;
+          g_pins[i].pin_device_id = pkt.pin_device_id;
+          g_pins[i].online = true;
+          g_pins[i].last_sighting_ms = millis();
+          break;
+        }
+      }
+    }
+    if (assigned_slot >= 0) {
+      ResQ::PinSetSlotCmdPacket cmd;
+      ResQ::fill_pin_set_slot_cmd(cmd, pkt.pin_device_id, (uint8_t)assigned_slot);
+      LoRa.idle();
+      if (LoRa.beginPacket()) {
+        LoRa.write(reinterpret_cast<const uint8_t*>(&cmd), sizeof(cmd));
+        LoRa.endPacket();
+      }
+      LoRa.receive();
+      g_last_tx_flash_ms = millis();
+    }
+
     JsonDocument out;
     out["t"]      = "pin_button";
     char pid[9]; snprintf(pid, sizeof(pid), "%08X", pkt.pin_device_id);

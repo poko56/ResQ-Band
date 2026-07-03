@@ -115,11 +115,6 @@
   #define PIN_LED_STATUS  13
   #define PIN_VBAT_ADC    36   // ADC1_CH0 on classic ESP32
 
-  // Pin index (which physical tower this is). Set via -D PIN_INDEX=2.
-  #ifndef PIN_INDEX
-    #define PIN_INDEX     0
-  #endif
-
 #elif defined(DEVICE_TYPE_RESQ_NODE)
   #define BOARD_NAME      "ResQ-Node"
   #define DEVICE_TYPE_ID  0x03

@@ -31,6 +31,7 @@ enum PacketType : uint8_t {
   PKT_RING_ACK     = 0x51,  // Band -> Node: buzzer started     (RingAckPacket)
   PKT_PIN_IDENTIFY_CMD = 0x60, // Main -> Pin: rapid blink LED  (PinIdentifyCmdPacket)
   PKT_PIN_BUTTON_ACK   = 0x61, // Pin -> Main: BOOT button pressed(PinButtonAckPacket)
+  PKT_PIN_SET_SLOT_CMD = 0x62, // Main -> Pin: assign TDMA slot   (PinSetSlotCmdPacket)
   // Emergency (uses SOSPacket, distinguished by type)
   PKT_SOS_TAP      = 0x20,  // Band -> Main: 3-tap SOS          (SOSPacket)
   PKT_SOS_FALL     = 0x21,  // Band -> Main: fall detected      (SOSPacket)
@@ -210,6 +211,19 @@ struct __attribute__((packed)) PinButtonAckPacket {
 static_assert(sizeof(PinButtonAckPacket) == 9, "PinButtonAckPacket layout drifted");
 
 // ============================================================================
+// PinSetSlotCmdPacket - MainNode tells Pin to use a specific TDMA slot
+// ============================================================================
+struct __attribute__((packed)) PinSetSlotCmdPacket {
+  uint8_t  magic;
+  uint8_t  packet_type;
+  uint8_t  protocol_version;
+  uint32_t pin_device_id;
+  uint8_t  slot_index;
+  uint16_t crc16;
+};
+static_assert(sizeof(PinSetSlotCmdPacket) == 10, "PinSetSlotCmdPacket layout drifted");
+
+// ============================================================================
 // API
 // ============================================================================
 
@@ -292,6 +306,12 @@ bool verify_pin_identify_cmd(const PinIdentifyCmdPacket& pkt);
 void fill_pin_button_ack(PinButtonAckPacket& pkt,
                          uint32_t pin_device_id);
 bool verify_pin_button_ack(const PinButtonAckPacket& pkt);
+
+// PinSetSlotCmdPacket
+void fill_pin_set_slot_cmd(PinSetSlotCmdPacket& pkt,
+                           uint32_t pin_device_id,
+                           uint8_t slot_index);
+bool verify_pin_set_slot_cmd(const PinSetSlotCmdPacket& pkt);
 
 // Friendly labels (also used in serial logs)
 const char* triage_label(TriageLevel level);

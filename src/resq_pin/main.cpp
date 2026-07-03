@@ -22,6 +22,7 @@
 #include <LoRa.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+#include <Preferences.h>
 #include "ResQConfig.h"
 #include "ResQProtocol.h"
 #if ENABLE_OTA
@@ -32,9 +33,6 @@
 // ----------------------------------------------------------------------------
 // Tunables
 // ----------------------------------------------------------------------------
-#ifndef PIN_INDEX
-#define PIN_INDEX 0
-#endif
 
 // Drop sightings older than this from the table before TX so the report
 // doesn't claim we just heard a band that's actually long gone.
@@ -70,6 +68,9 @@ static uint32_t      g_next_ota_check_ms  = 0;
 static uint32_t      g_identify_until_ms  = 0;
 static bool          g_last_btn_state     = HIGH;
 static uint32_t      g_last_btn_debounce_ms = 0;
+
+static Preferences   g_prefs;
+static uint8_t       g_pin_index          = 255;
 
 // ----------------------------------------------------------------------------
 // LoRa init (non-fatal, same pattern as MainNode/Band)
@@ -179,13 +180,33 @@ static void on_lora_rx(int packet_size) {
     }
     return;
   }
+
+  // Set slot command
+  if (ptype == ResQ::PKT_PIN_SET_SLOT_CMD && n >= sizeof(ResQ::PinSetSlotCmdPacket)) {
+    ResQ::PinSetSlotCmdPacket pkt;
+    memcpy(&pkt, buf, sizeof(pkt));
+    if (ResQ::verify_pin_set_slot_cmd(pkt) && pkt.pin_device_id == g_device_id) {
+      g_pin_index = pkt.slot_index;
+      g_prefs.putUChar("pin_idx", g_pin_index);
+      Serial.printf("[CMD] assigned to slot %u\n", g_pin_index);
+      
+      // Flash LED to acknowledge
+      for (int i=0; i<3; i++) {
+        digitalWrite(PIN_LED_STATUS, HIGH);
+        delay(100);
+        digitalWrite(PIN_LED_STATUS, LOW);
+        delay(100);
+      }
+    }
+    return;
+  }
 }
 
 // ----------------------------------------------------------------------------
 // TDMA slot gate - returns true once per cycle inside our assigned slot
 // ----------------------------------------------------------------------------
 static bool should_tx_report(uint32_t now) {
-  if (!g_lora_ready) return false;
+  if (!g_lora_ready || g_pin_index == 255) return false;
 
   // Solo fallback: if we never see a beacon, still cough up a report each
   // cycle so a single-pin lab setup can verify the data path end-to-end.
@@ -198,7 +219,7 @@ static bool should_tx_report(uint32_t now) {
   const uint32_t since_beacon = now - g_last_beacon_ms;
   const uint32_t slot_idx     = since_beacon / TDMA_SLOT_MS;
   const uint32_t into_slot    = since_beacon % TDMA_SLOT_MS;
-  const uint32_t my_slot      = TDMA_SLOT_PIN_BASE + PIN_INDEX;
+  const uint32_t my_slot      = TDMA_SLOT_PIN_BASE + g_pin_index;
 
   if (slot_idx == my_slot &&
       into_slot >= SLOT_TX_OFFSET_MS &&
@@ -217,7 +238,7 @@ static void tx_sighting_report() {
   purge_stale_sightings(now);
 
   ResQ::PinSightingPacket pkt;
-  ResQ::init_pin_sighting(pkt, (uint8_t)PIN_INDEX, g_device_id);
+  ResQ::init_pin_sighting(pkt, g_pin_index, g_device_id);
 
   for (const auto& s : g_table) {
     if (s.band_id == 0) continue;
@@ -262,11 +283,14 @@ void setup() {
 
   g_device_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
 
+  g_prefs.begin("resq", false);
+  g_pin_index = g_prefs.getUChar("pin_idx", 255);
+
   Serial.println();
   Serial.printf("== %s fw=%s ==\n", BOARD_NAME, FW_VERSION);
   Serial.printf("device_id=%08X  pin_index=%u  slot=%u\n",
-                g_device_id, (unsigned)PIN_INDEX,
-                (unsigned)(TDMA_SLOT_PIN_BASE + PIN_INDEX));
+                g_device_id, (unsigned)g_pin_index,
+                (unsigned)(g_pin_index == 255 ? 0 : TDMA_SLOT_PIN_BASE + g_pin_index));
 
   g_lora_ready = connect_lora();
   g_last_lora_retry_ms = millis();
@@ -347,6 +371,10 @@ void loop() {
     digitalWrite(PIN_LED_STATUS, ((now / 50) & 1) ? HIGH : LOW);
   } else if (!g_lora_ready) {
     digitalWrite(PIN_LED_STATUS, ((now / 500) & 1) ? HIGH : LOW);
+  } else if (g_pin_index == 255) {
+    // Unassigned: fast double-blink every second
+    const uint32_t phase = now % 1000;
+    digitalWrite(PIN_LED_STATUS, (phase < 50 || (phase >= 150 && phase < 200)) ? HIGH : LOW);
   } else if (!g_beacon_seen) {
     const uint32_t phase = now % 1000;
     digitalWrite(PIN_LED_STATUS, (phase < 80 || (phase >= 200 && phase < 280)) ? HIGH : LOW);
