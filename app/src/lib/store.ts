@@ -12,6 +12,7 @@ import type {
   TimelineEvent,
   TimelineEventType,
   TriageLevel,
+  UnassignedAnchor,
   Wristband,
 } from "./types";
 
@@ -23,6 +24,7 @@ interface ResQState {
   incident: Incident;
   wristbands: Record<string, Wristband>;
   anchors: Record<string, Anchor>;       // keyed by anchor.id (Pin device hex when known)
+  unassignedAnchors: Record<string, UnassignedAnchor>; // recently seen unassigned pins
   sightings: Record<string, Sighting>;
   timeline: TimelineEvent[];
   placementMode: PlacementMode;
@@ -46,6 +48,7 @@ interface ResQState {
   renameAnchor: (id: string, name: string) => void;
   setAnchorPosition: (id: string, position: LatLng) => void;
   registerAnchorId: (id: string, pinIndex?: number) => void;
+  addUnassignedAnchor: (id: string) => void;
 
   setPlacementMode: (mode: PlacementMode) => void;
 
@@ -110,6 +113,7 @@ export const useResQ = create<ResQState>((set, get) => ({
   incident: defaultIncident(),
   wristbands: {},
   anchors: {},
+  unassignedAnchors: {},
   sightings: {},
   timeline: [],
   placementMode: "none",
@@ -229,7 +233,23 @@ export const useResQ = create<ResQState>((set, get) => ({
         placedAt: Date.now(),
         lastSeen: Date.now(),
       };
-      return { anchors: { ...s.anchors, [id]: anchor } };
+      // Once registered, remove it from unassigned list
+      const nextUnassigned = { ...s.unassignedAnchors };
+      delete nextUnassigned[id];
+      return { anchors: { ...s.anchors, [id]: anchor }, unassignedAnchors: nextUnassigned };
+    });
+  },
+
+  addUnassignedAnchor: (id) => {
+    set((s) => {
+      // Don't add if already assigned
+      if (s.anchors[id]) return s;
+      return {
+        unassignedAnchors: {
+          ...s.unassignedAnchors,
+          [id]: { id, lastSeen: Date.now() },
+        }
+      };
     });
   },
 

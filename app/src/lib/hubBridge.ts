@@ -243,6 +243,10 @@ function dispatchHubEvent(ev: HubEvent): void {
       s.setPlacementMode(ev.pin_id);
       break;
 
+    case "pin_join_req":
+      s.addUnassignedAnchor(ev.pin_id);
+      break;
+
     case "beacon":
       s.setHubInfo({ cycleId: ev.cycle, emergencyMode: (ev.flags & 0x01) !== 0 });
       break;

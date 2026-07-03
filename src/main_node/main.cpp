@@ -455,51 +455,17 @@ static void on_lora_rx(int packet_size) {
     out["ts"]     = (uint32_t)millis();
     send_json_event(out);
   }
-  // -- PIN_BUTTON_ACK --
-  else if (ptype == ResQ::PKT_PIN_BUTTON_ACK && n >= sizeof(ResQ::PinButtonAckPacket)) {
-    ResQ::PinButtonAckPacket pkt;
+  // -- PIN_JOIN_REQ --
+  else if (ptype == ResQ::PKT_PIN_JOIN_REQ && n >= sizeof(ResQ::PinJoinReqPacket)) {
+    ResQ::PinJoinReqPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
-    if (!ResQ::verify_pin_button_ack(pkt)) { g_rx_dropped++; return; }
+    if (!ResQ::verify_pin_join_req(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
 
-    // Auto-assign slot
-    int assigned_slot = -1;
-    for (int i = 0; i < TDMA_MAX_PINS; i++) {
-      if (g_pins[i].pin_device_id == pkt.pin_device_id) {
-        assigned_slot = i;
-        break;
-      }
-    }
-    if (assigned_slot < 0) {
-      for (int i = 0; i < TDMA_MAX_PINS; i++) {
-        if (g_pins[i].pin_device_id == 0) {
-          assigned_slot = i;
-          g_pins[i].pin_device_id = pkt.pin_device_id;
-          g_pins[i].online = true;
-          g_pins[i].last_sighting_ms = millis();
-          break;
-        }
-      }
-    }
-    if (assigned_slot >= 0) {
-      ResQ::PinSetSlotCmdPacket cmd;
-      ResQ::fill_pin_set_slot_cmd(cmd, pkt.pin_device_id, (uint8_t)assigned_slot);
-      LoRa.idle();
-      if (LoRa.beginPacket()) {
-        LoRa.write(reinterpret_cast<const uint8_t*>(&cmd), sizeof(cmd));
-        LoRa.endPacket();
-      }
-      LoRa.receive();
-      g_last_tx_flash_ms = millis();
-    }
-
     JsonDocument out;
-    out["t"]      = "pin_button";
+    out["t"]      = "pin_join_req";
     char pid[9]; snprintf(pid, sizeof(pid), "%08X", pkt.pin_device_id);
     out["pin_id"] = pid;
-    if (assigned_slot >= 0) {
-      out["slot"] = assigned_slot;
-    }
     out["ts"]     = (uint32_t)millis();
     send_json_event(out);
   } else {
@@ -759,6 +725,32 @@ static void handle_serial_command(const char* line, size_t len) {
     g_last_tx_flash_ms = millis();
     
     JsonDocument r; r["t"] = "ack"; r["c"] = "identify_pin"; send_json_event(r);
+  }
+  else if (!strcmp(cmd, "set_pin_slot")) {
+    const char* pin_id_str = doc["pin_id"];
+    uint8_t slot = doc["slot"] | 255;
+    if (!pin_id_str || slot > 3) {
+      JsonDocument e; e["t"] = "err"; e["c"] = "set_pin_slot"; e["msg"] = "bad args"; send_json_event(e);
+      return;
+    }
+    uint32_t pin_id = (uint32_t)strtoul(pin_id_str, nullptr, 16);
+    
+    // Register it in our g_pins array
+    g_pins[slot].pin_device_id = pin_id;
+    g_pins[slot].online = true;
+    g_pins[slot].last_sighting_ms = millis();
+    
+    ResQ::PinSetSlotCmdPacket pkt;
+    ResQ::fill_pin_set_slot_cmd(pkt, pin_id, slot);
+    LoRa.idle();
+    if (LoRa.beginPacket()) {
+      LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
+      LoRa.endPacket();
+    }
+    LoRa.receive();
+    g_last_tx_flash_ms = millis();
+    
+    JsonDocument r; r["t"] = "ack"; r["c"] = "set_pin_slot"; send_json_event(r);
   }
   else if (!strcmp(cmd, "ota_check")) {
 #if ENABLE_OTA

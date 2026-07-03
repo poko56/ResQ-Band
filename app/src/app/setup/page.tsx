@@ -30,6 +30,7 @@ const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner")
 
 export default function PinSetupPage() {
   const anchors          = useResQ((s) => s.anchors);
+  const unassignedAnchors = useResQ((s) => s.unassignedAnchors);
   const removeAnchor     = useResQ((s) => s.removeAnchor);
   const renameAnchor     = useResQ((s) => s.renameAnchor);
   const placementMode    = useResQ((s) => s.placementMode);
@@ -48,6 +49,8 @@ export default function PinSetupPage() {
     setEditingId(null);
     setDraftName("");
   }
+
+  const [selectedUnassigned, setSelectedUnassigned] = useState<Record<number, string>>({});
 
   return (
     <div className="flex h-screen flex-col bg-app-bg">
@@ -82,10 +85,35 @@ export default function PinSetupPage() {
 
                   <div className="min-w-0 flex-1">
                     {!anchor ? (
-                      <>
-                        <div className="text-xs text-app-muted">Empty slot</div>
-                        <div className="text-2xs text-app-muted">Drop next anchor here</div>
-                      </>
+                      <div className="flex flex-col gap-2">
+                        <div>
+                          <div className="text-xs text-app-muted">Empty slot</div>
+                          <div className="text-2xs text-app-muted">Select an unassigned anchor</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="field h-7 text-xs bg-app-input border border-app-border text-app-text"
+                            value={selectedUnassigned[index] || ""}
+                            onChange={(e) => setSelectedUnassigned({ ...selectedUnassigned, [index]: e.target.value })}
+                          >
+                            <option value="">-- select anchor --</option>
+                            {Object.values(unassignedAnchors).map((ua) => (
+                              <option key={ua.id} value={ua.id}>{ua.id} ({timeAgo(ua.lastSeen)})</option>
+                            ))}
+                          </select>
+                          <button
+                            className="btn btn-sm btn-accent"
+                            disabled={!selectedUnassigned[index]}
+                            onClick={() => {
+                              import("@/lib/hubBridge").then(mod => {
+                                mod.sendCommand({ c: "set_pin_slot", pin_id: selectedUnassigned[index], slot: index });
+                              });
+                            }}
+                          >
+                            Assign
+                          </button>
+                        </div>
+                      </div>
                     ) : editingId === anchor.id ? (
                       <div className="flex items-center gap-1">
                         <input
@@ -139,8 +167,16 @@ export default function PinSetupPage() {
                           >
                             {placementMode === anchor.id ? "Cancel Place" : "Place"}
                           </button>
-                          <button onClick={() => removeAnchor(anchor.id)} className="btn btn-sm btn-ghost text-status-err hover:bg-triage-red hover:text-white">
-                            Delete
+                          <button
+                            onClick={() => {
+                              import("@/lib/hubBridge").then(mod => {
+                                mod.sendCommand({ c: "set_pin_slot", pin_id: anchor.id, slot: 255 }); // Unassign
+                              });
+                              removeAnchor(anchor.id);
+                            }}
+                            className="btn btn-sm hover:bg-status-err hover:text-white"
+                          >
+                            Remove
                           </button>
                         </div>
                       </>

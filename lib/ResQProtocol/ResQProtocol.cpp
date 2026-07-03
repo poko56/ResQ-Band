@@ -269,6 +269,21 @@ bool verify_pin_set_slot_cmd(const PinSetSlotCmdPacket& pkt) {
 }
 
 // ============================================================================
+// PinJoinReqPacket
+// ============================================================================
+void fill_pin_join_req(PinJoinReqPacket& pkt,
+                       uint32_t pin_device_id) {
+  pkt.magic            = MAGIC;
+  pkt.packet_type      = PKT_PIN_JOIN_REQ;
+  pkt.protocol_version = PROTOCOL_VERSION;
+  pkt.pin_device_id    = pin_device_id;
+  pkt.crc16            = compute_packet_crc(pkt);
+}
+bool verify_pin_join_req(const PinJoinReqPacket& pkt) {
+  return verify_packet_basic(pkt, PKT_PIN_JOIN_REQ);
+}
+
+// ============================================================================
 // Labels
 // ============================================================================
 const char* triage_label(TriageLevel level) {
@@ -289,11 +304,12 @@ const char* packet_type_label(PacketType t) {
     case PKT_ASSIGNMENT:   return "ASSIGNMENT";
     case PKT_FOUND:        return "FOUND";
     case PKT_RING_CMD:     return "RING_CMD";
-    case PKT_RING_ACK:     return "RING_ACK";
-    case PKT_PIN_IDENTIFY_CMD: return "PIN_IDENTIFY_CMD";
-    case PKT_PIN_BUTTON_ACK:   return "PIN_BUTTON_ACK";
-    case PKT_PIN_SET_SLOT_CMD: return "PIN_SET_SLOT_CMD";
-    case PKT_SOS_TAP:      return "SOS_TAP";
+    case PKT_RING_ACK:         return "RING_ACK";
+    case PKT_PIN_IDENTIFY_CMD: return "PIN_IDENTIFY";
+    case PKT_PIN_BUTTON_ACK:   return "PIN_BUTTON";
+    case PKT_PIN_SET_SLOT_CMD: return "PIN_SET_SLOT";
+    case PKT_PIN_JOIN_REQ:     return "PIN_JOIN_REQ";
+    case PKT_SOS_TAP:          return "SOS_TAP";
     case PKT_SOS_FALL:     return "SOS_FALL";
     default:               return "UNKNOWN";
   }

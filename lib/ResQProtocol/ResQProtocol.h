@@ -32,6 +32,7 @@ enum PacketType : uint8_t {
   PKT_PIN_IDENTIFY_CMD = 0x60, // Main -> Pin: rapid blink LED  (PinIdentifyCmdPacket)
   PKT_PIN_BUTTON_ACK   = 0x61, // Pin -> Main: BOOT button pressed(PinButtonAckPacket)
   PKT_PIN_SET_SLOT_CMD = 0x62, // Main -> Pin: assign TDMA slot   (PinSetSlotCmdPacket)
+  PKT_PIN_JOIN_REQ     = 0x63, // Pin -> Main: unassigned pin asking to join (PinJoinReqPacket)
   // Emergency (uses SOSPacket, distinguished by type)
   PKT_SOS_TAP      = 0x20,  // Band -> Main: 3-tap SOS          (SOSPacket)
   PKT_SOS_FALL     = 0x21,  // Band -> Main: fall detected      (SOSPacket)
@@ -224,6 +225,18 @@ struct __attribute__((packed)) PinSetSlotCmdPacket {
 static_assert(sizeof(PinSetSlotCmdPacket) == 10, "PinSetSlotCmdPacket layout drifted");
 
 // ============================================================================
+// PinJoinReqPacket - unassigned Pin announcing its presence
+// ============================================================================
+struct __attribute__((packed)) PinJoinReqPacket {
+  uint8_t  magic;
+  uint8_t  packet_type;
+  uint8_t  protocol_version;
+  uint32_t pin_device_id;
+  uint16_t crc16;
+};
+static_assert(sizeof(PinJoinReqPacket) == 9, "PinJoinReqPacket layout drifted");
+
+// ============================================================================
 // API
 // ============================================================================
 
@@ -312,6 +325,11 @@ void fill_pin_set_slot_cmd(PinSetSlotCmdPacket& pkt,
                            uint32_t pin_device_id,
                            uint8_t slot_index);
 bool verify_pin_set_slot_cmd(const PinSetSlotCmdPacket& pkt);
+
+// PinJoinReqPacket
+void fill_pin_join_req(PinJoinReqPacket& pkt,
+                       uint32_t pin_device_id);
+bool verify_pin_join_req(const PinJoinReqPacket& pkt);
 
 // Friendly labels (also used in serial logs)
 const char* triage_label(TriageLevel level);

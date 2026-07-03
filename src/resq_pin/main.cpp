@@ -64,10 +64,8 @@ static uint32_t      g_next_ota_check_ms  = 0;
 #endif
 
 // Identify / Button state
-#define PIN_BUTTON 0
 static uint32_t      g_identify_until_ms  = 0;
-static bool          g_last_btn_state     = HIGH;
-static uint32_t      g_last_btn_debounce_ms = 0;
+static uint32_t      g_next_join_req_ms   = 0;
 
 static Preferences   g_prefs;
 static uint8_t       g_pin_index          = 255;
@@ -278,8 +276,6 @@ void setup() {
 
   pinMode(PIN_LED_STATUS, OUTPUT);
   digitalWrite(PIN_LED_STATUS, LOW);
-  
-  pinMode(PIN_BUTTON, INPUT_PULLUP);
 
   g_device_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
 
@@ -333,34 +329,25 @@ void loop() {
     }
   }
 
-  // --- Button Check --------------------------------------------------------
-  bool btn_state = digitalRead(PIN_BUTTON);
-  if (btn_state != g_last_btn_state) {
-    g_last_btn_debounce_ms = now;
-  }
-  if ((now - g_last_btn_debounce_ms) > 50) {
-    static bool confirmed_state = HIGH;
-    if (btn_state != confirmed_state) {
-      confirmed_state = btn_state;
-      if (confirmed_state == LOW) { // Pressed
-        ResQ::PinButtonAckPacket ack;
-        ResQ::fill_pin_button_ack(ack, g_device_id);
-        
-        digitalWrite(PIN_LED_STATUS, HIGH);
-        LoRa.idle();
-        if (LoRa.beginPacket()) {
-          LoRa.write(reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
-          LoRa.endPacket();
-        }
-        LoRa.receive();
-        digitalWrite(PIN_LED_STATUS, LOW);
-        
-        Serial.println("[BTN] identify ack sent");
-        g_identify_until_ms = 0; // Clear identify blink if active
-      }
+  // --- Unassigned Join Request ---------------------------------------------
+  if (g_lora_ready && g_pin_index == 255 && now >= g_next_join_req_ms) {
+    // 5-10s random jitter
+    g_next_join_req_ms = now + 5000 + random(5000);
+
+    ResQ::PinJoinReqPacket req;
+    ResQ::fill_pin_join_req(req, g_device_id);
+
+    digitalWrite(PIN_LED_STATUS, HIGH);
+    LoRa.idle();
+    if (LoRa.beginPacket()) {
+      LoRa.write(reinterpret_cast<const uint8_t*>(&req), sizeof(req));
+      LoRa.endPacket();
     }
+    LoRa.receive();
+    digitalWrite(PIN_LED_STATUS, LOW);
+    
+    Serial.println("[JOIN] sent join request");
   }
-  g_last_btn_state = btn_state;
 
   // --- Status LED ----------------------------------------------------------
   // Identify mode:   10 Hz blink
