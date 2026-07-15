@@ -97,7 +97,9 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
   
   uint32_t startMs = millis();
   while (!txComplete && millis() - startMs < 50) {
-      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; uwb.onIRQ(); }
+      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; }
+      uwb.onIRQ();
+      delay(2);
   }
   
   if (!txComplete) { g_webui_debug = "ERR: POLL TX Timeout"; Serial.println("[UWB] POLL TX Timeout"); *distance_m = last_distance; return; }
@@ -108,7 +110,9 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
   // Wait for RESP
   startMs = millis();
   while (!rxComplete && millis() - startMs < RANGE_TIMEOUT_MS) {
-      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; uwb.onIRQ(); }
+      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; }
+      uwb.onIRQ();
+      delay(2);
   }
   
   if (!rxComplete) { g_webui_debug = "ERR: RESP RX Timeout"; Serial.println("[UWB] RESP RX Timeout"); *distance_m = last_distance; return; }
@@ -146,7 +150,9 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
   
   startMs = millis();
   while (!txComplete && millis() - startMs < 50) {
-      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; uwb.onIRQ(); }
+      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; }
+      uwb.onIRQ();
+      delay(2);
   }
   
   if (!txComplete) { g_webui_debug = "ERR: FINAL TX Timeout"; Serial.println("[UWB] FINAL TX Timeout"); uwb.startReceive(); *distance_m = last_distance; return; }
@@ -157,7 +163,9 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
   // Wait for RESULT
   startMs = millis();
   while (!rxComplete && millis() - startMs < RANGE_TIMEOUT_MS) {
-      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; uwb.onIRQ(); }
+      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; }
+      uwb.onIRQ();
+      delay(2);
   }
   
   if (!rxComplete) { g_webui_debug = "ERR: RESULT RX Timeout"; Serial.println("[UWB] RESULT RX Timeout"); *distance_m = last_distance; return; }
