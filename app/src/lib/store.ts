@@ -109,6 +109,34 @@ export function _registerSendCommand(fn: (cmd: object) => void) {
   _sendCommand = fn;
 }
 
+// Helper: Calculate Inverse Distance Weighting Trilateration
+function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors: Record<string, Anchor>): LatLng | undefined {
+  const activeSightings = Object.values(rssiPerPin).filter(p => p.ageMs < 30000); // Only use recent sightings (< 30s)
+  if (activeSightings.length === 0) return undefined;
+
+  let sumLat = 0, sumLng = 0, sumWeight = 0;
+  let hasValidAnchor = false;
+
+  for (const s of activeSightings) {
+    const anchor = Object.values(anchors).find(a => a.pinIndex === s.pinIndex);
+    if (!anchor || !anchor.position) continue;
+
+    // Estimate distance using Path Loss model (A = -45, n = 2.5)
+    const distance = Math.pow(10, (-45 - s.rssi) / (10 * 2.5));
+    
+    // Weight = 1 / d^2
+    const weight = 1 / Math.pow(distance, 2);
+
+    sumLat += anchor.position.lat * weight;
+    sumLng += anchor.position.lng * weight;
+    sumWeight += weight;
+    hasValidAnchor = true;
+  }
+
+  if (!hasValidAnchor || sumWeight === 0) return undefined;
+  return { lat: sumLat / sumWeight, lng: sumLng / sumWeight };
+}
+
 export const useResQ = create<ResQState>((set, get) => ({
   incident: defaultIncident(),
   wristbands: {},
@@ -314,13 +342,8 @@ export const useResQ = create<ResQState>((set, get) => ({
         const prev = nextSightings[bandId];
         const rssiEntry: PinRssi = { pinIndex: ev.pin, rssi: sg.rssi, snr: sg.snr, ageMs: sg.age_ms };
         const rssiPerPin = { ...(prev?.rssiPerPin ?? {}), [ev.pin]: rssiEntry };
-        // Infer position: best RSSI pin -> use its anchor position
-        let position = prev?.position;
-        const bestPin = Object.values(rssiPerPin).reduce((best, p) => (!best || p.rssi > best.rssi ? p : best), undefined as PinRssi | undefined);
-        if (bestPin) {
-          const anchor = Object.values(s.anchors).find((a) => a.pinIndex === bestPin.pinIndex);
-          if (anchor) position = anchor.position;
-        }
+        // Infer position: IDW Trilateration based on all active pins
+        let position = calculateWeightedPosition(rssiPerPin, s.anchors) ?? prev?.position;
         nextSightings[bandId] = {
           wristbandId: bandId,
           lastSeen: prev?.lastSeen ?? Date.now(),
@@ -464,7 +487,7 @@ export const useResQ = create<ResQState>((set, get) => ({
 
       for (const id in nextAnchors) {
         const a = nextAnchors[id];
-        if (a.online && a.lastSeen && now - a.lastSeen > 12000) {
+        if (a.online && a.lastSeen && now - a.lastSeen > 25000) {
           nextAnchors[id] = { ...a, online: false };
           changed = true;
         }

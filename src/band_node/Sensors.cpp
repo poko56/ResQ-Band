@@ -44,29 +44,43 @@ void init_sensors() {
 
 void poll_sensors() {
   // Update Heart Rate
-  long irValue = particleSensor.getIR();
+  particleSensor.check(); // Check the sensor for new data
   
-  if (checkForBeat(irValue) == true) {
-    long delta = millis() - lastBeat;
-    lastBeat = millis();
+  long irValue = 0;
+  while (particleSensor.available()) {
+    irValue = particleSensor.getFIFOIR(); // Read from FIFO
+    particleSensor.nextSample(); // Move to next sample
 
-    beatsPerMinute = 60 / (delta / 1000.0);
+    if (checkForBeat(irValue) == true) {
+      long delta = millis() - lastBeat;
+      lastBeat = millis();
 
-    if (beatsPerMinute < 255 && beatsPerMinute > 20) {
-      rates[rateSpot++] = (byte)beatsPerMinute;
-      rateSpot %= RATE_SIZE;
+      beatsPerMinute = 60 / (delta / 1000.0);
 
-      // Take average
-      int avg_hr = 0;
-      for (byte x = 0 ; x < RATE_SIZE ; x++)
-        avg_hr += rates[x];
-      avg_hr /= RATE_SIZE;
-      current_hr = (uint8_t)avg_hr;
+      if (beatsPerMinute < 255 && beatsPerMinute > 20) {
+        rates[rateSpot++] = (byte)beatsPerMinute;
+        rateSpot %= RATE_SIZE;
+
+        // Take average
+        int avg_hr = 0;
+        for (byte x = 0 ; x < RATE_SIZE ; x++)
+          avg_hr += rates[x];
+        avg_hr /= RATE_SIZE;
+        current_hr = (uint8_t)avg_hr;
+      }
     }
   }
 
   // Fake SpO2 for now if we don't have full algorithm ported, or set base value
-  if (irValue > 50000) {
+  // Debug print every 1 second
+  static uint32_t last_print = 0;
+  if (millis() - last_print > 1000) {
+    last_print = millis();
+    Serial.printf("[Sensors] IR=%ld HR=%u SpO2=%u\n", irValue, current_hr, current_spo2);
+  }
+
+  // Fake SpO2 for now if we don't have full algorithm ported, or set base value
+  if (irValue > 20000) {
     current_spo2 = 98; // Valid reading pseudo
   } else {
     current_hr = 0;

@@ -121,7 +121,6 @@ static bool connect_lora() {
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.enableCrc();
-  LoRa.onReceive(on_lora_rx);
   LoRa.receive();
   return true;
 }
@@ -131,6 +130,8 @@ void setup() {
   setCpuFrequencyMhz(240);
 
   Serial.begin(USB_SERIAL_BAUD);
+  Serial.setTxTimeoutMs(0); // [CRITICAL FIX] Prevent Native USB from freezing the board if host is slow!
+  
   // Give HWCDC a moment to settle so the first Hello isn't lost to a
   // late host enumeration. Non-blocking - we do not wait for !Serial.
   delay(250);
@@ -209,6 +210,14 @@ void setup() {
 // ============================================================================
 void loop() {
   const uint32_t now = millis();
+
+  // --- Poll LoRa instead of using ISR ---
+  if (g_lora_ready) {
+    int packet_size = LoRa.parsePacket();
+    if (packet_size) {
+      on_lora_rx(packet_size);
+    }
+  }
 
 #if ENABLE_OTA
   // --- Background OTA check (silent unless update available) ---------------

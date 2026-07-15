@@ -281,15 +281,18 @@ void setup() {
   uint64_t mac = ESP.getEfuseMac();
   uint32_t mac_lower = (uint32_t)(mac & 0xFFFFFFFF);
   
-  if (mac_lower == 0x1234daa4) {       // MAC: 00:4b:12:34:da:a4
+  if (mac_lower == 0x8a2b1838) {       // Pillar 1 (MAC: 38:18:2b:8a:90:88)
     g_device_id = 0xAAAA0001;
     g_pin_index = 0; // Slot 1
-  } else if (mac_lower == 0x2b8a9088) { // MAC: 38:18:2b:8a:90:88
+  } else if (mac_lower == 0x8b2b1838) { // Pillar 2 (MAC: 38:18:2b:8b:b8:3c)
     g_device_id = 0xAAAA0002;
     g_pin_index = 1; // Slot 2
-  } else if (mac_lower == 0xfdfd11f8) { // MAC: 68:25:dd:fd:11:f8
+  } else if (mac_lower == 0xfddd2568) { // Pillar 3 (Old MAC: 68:25:dd:fd:11:f8)
     g_device_id = 0xAAAA0003;
     g_pin_index = 2; // Slot 3
+  } else if (mac_lower == 0x34124b00) { // Pillar 4 (MAC: 00:4b:12:34:da:a4)
+    g_device_id = 0xAAAA0004;
+    g_pin_index = 3; // Slot 4
   } else {
     // Fallback for any other new boards
     g_device_id = mac_lower;
@@ -307,7 +310,7 @@ void setup() {
   g_last_lora_retry_ms = millis();
   Serial.printf("[LoRa] init=%s\n", g_lora_ready ? "OK" : "FAIL (will retry)");
 
-  if (g_lora_ready) LoRa.onReceive(on_lora_rx);
+  // if (g_lora_ready) LoRa.onReceive(on_lora_rx);
 
 #if ENABLE_OTA
   // Background OTA: try to join WiFi and pull the latest firmware on first
@@ -334,12 +337,20 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
 
+  // --- Poll LoRa instead of using ISR ---
+  if (g_lora_ready) {
+    int packet_size = LoRa.parsePacket();
+    if (packet_size) {
+      on_lora_rx(packet_size);
+    }
+  }
+
   // --- LoRa retry while down ----------------------------------------------
   if (!g_lora_ready && now - g_last_lora_retry_ms >= LORA_RETRY_MS) {
     g_last_lora_retry_ms = now;
     g_lora_ready = connect_lora();
     if (g_lora_ready) {
-      LoRa.onReceive(on_lora_rx);
+      // LoRa.onReceive(on_lora_rx);
       Serial.println("[LoRa] recovered");
     }
   }

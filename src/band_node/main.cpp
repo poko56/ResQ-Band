@@ -300,7 +300,7 @@ void setup() {
   g_last_lora_retry_ms = millis();
   Serial.printf("[LoRa] init=%s\n", g_lora_ready ? "OK" : "FAIL (will retry)");
 
-  if (g_lora_ready) LoRa.onReceive(on_lora_rx);
+  // if (g_lora_ready) LoRa.onReceive(on_lora_rx);
   
   init_sensors();
   init_uwb();
@@ -309,12 +309,20 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
 
+  // --- Poll LoRa instead of using ISR ---
+  if (g_lora_ready) {
+    int packet_size = LoRa.parsePacket();
+    if (packet_size) {
+      on_lora_rx(packet_size);
+    }
+  }
+
   // --- LoRa retry while down -----------------------------------------------
   if (!g_lora_ready && now - g_last_lora_retry_ms >= LORA_RETRY_MS) {
     g_last_lora_retry_ms = now;
     g_lora_ready = connect_lora();
     if (g_lora_ready) {
-      LoRa.onReceive(on_lora_rx);
+      // LoRa.onReceive(on_lora_rx);
       Serial.println("[LoRa] recovered");
     }
   }
@@ -339,6 +347,13 @@ void loop() {
   uint8_t sos_cause = 0;
   float sos_g = 0.0f;
   if (check_emergency_triggers(&sos_cause, &sos_g)) {
-    tx_emergency(sos_cause, sos_g);
+    static uint32_t last_emergency_tx = 0;
+    if (now - last_emergency_tx > 5000) { // 5 seconds cooldown
+      last_emergency_tx = now;
+      tx_emergency(sos_cause, sos_g);
+    } else {
+      // Suppress spamming
+      Serial.println("[SOS] Suppressed (cooldown active)");
+    }
   }
 }
