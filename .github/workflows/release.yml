@@ -1,0 +1,107 @@
+name: Build and release firmware
+
+# Push a semver tag to trigger:
+#   git tag v0.3.0 && git push --tags
+#
+# The workflow builds every PlatformIO env, renames each firmware.bin to
+# include the device type, and attaches them to a GitHub Release. Devices
+# fetch the latest .bin from that release in their OTA loop.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}   # also lets you trigger manually from the Actions tab
+
+permissions:
+  contents: write   # needed by softprops/action-gh-release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - main_node
+          - band_node
+          - resq_pin
+          - resq_node
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio intelhex
+
+      - name: Build ${{ matrix.env }}
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Stage artifact
+        run: |
+          mkdir -p artifacts
+          cp .pio/build/${{ matrix.env }}/firmware.bin artifacts/${{ matrix.env }}.bin
+          # Per-arch checksum so devices can verify before flashing
+          (cd artifacts && md5sum ${{ matrix.env }}.bin > ${{ matrix.env }}.bin.md5)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.env }}
+          path: artifacts/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Build manifest.json
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          cat > dist/manifest.json <<EOF
+          {
+            "version": "${tag}",
+            "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "binaries": {
+              "main_node": "main_node.bin",
+              "band_node": "band_node.bin",
+              "resq_pin":  "resq_pin.bin",
+              "resq_node": "resq_node.bin"
+            }
+          }
+          EOF
+          ls -la dist/
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.bin
+            dist/*.md5
+            dist/manifest.json

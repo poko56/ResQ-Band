@@ -1,0 +1,26 @@
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+.idea/
+.cache/
+build/
+dist/
+*.pyc
+__pycache__/
+
+.DS_Store
+Thumbs.db
+
+CMakeListsPrivate.txt
+sdkconfig
+sdkconfig.old
+
+secrets.h
+*.local.h
+.env
+
+# Firebase
+.firebase/
+firebase-debug.log
+.firebaserc.local
