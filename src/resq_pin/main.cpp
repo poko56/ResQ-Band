@@ -277,10 +277,25 @@ void setup() {
   pinMode(PIN_LED_STATUS, OUTPUT);
   digitalWrite(PIN_LED_STATUS, LOW);
 
-  g_device_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
-
-  g_prefs.begin("resq", false);
-  g_pin_index = g_prefs.getUChar("pin_idx", 255);
+  // Hardcode known MAC addresses to specific IDs and Slots to prevent ANY collision and skip assignment
+  uint64_t mac = ESP.getEfuseMac();
+  uint32_t mac_lower = (uint32_t)(mac & 0xFFFFFFFF);
+  
+  if (mac_lower == 0x1234daa4) {       // MAC: 00:4b:12:34:da:a4
+    g_device_id = 0xAAAA0001;
+    g_pin_index = 0; // Slot 1
+  } else if (mac_lower == 0x2b8a9088) { // MAC: 38:18:2b:8a:90:88
+    g_device_id = 0xAAAA0002;
+    g_pin_index = 1; // Slot 2
+  } else if (mac_lower == 0xfdfd11f8) { // MAC: 68:25:dd:fd:11:f8
+    g_device_id = 0xAAAA0003;
+    g_pin_index = 2; // Slot 3
+  } else {
+    // Fallback for any other new boards
+    g_device_id = mac_lower;
+    g_prefs.begin("resq", false);
+    g_pin_index = g_prefs.getUChar("pin_idx", 255);
+  }
 
   Serial.println();
   Serial.printf("== %s fw=%s ==\n", BOARD_NAME, FW_VERSION);
@@ -350,12 +365,12 @@ void loop() {
   }
 
   // --- Status LED ----------------------------------------------------------
-  // Identify mode:   10 Hz blink
+  // Identify mode:   Solid ON (bright)
   // No radio:        slow 1 Hz blink
   // No beacon yet:   double-blink (looking for MainNode)
   // Beacon locked:   off most of the time, brief on at TX time (set above)
   if (g_identify_until_ms > 0 && now < g_identify_until_ms) {
-    digitalWrite(PIN_LED_STATUS, ((now / 50) & 1) ? HIGH : LOW);
+    digitalWrite(PIN_LED_STATUS, HIGH); // Solid ON for unambiguous identification
   } else if (!g_lora_ready) {
     digitalWrite(PIN_LED_STATUS, ((now / 500) & 1) ? HIGH : LOW);
   } else if (g_pin_index == 255) {

@@ -729,16 +729,25 @@ static void handle_serial_command(const char* line, size_t len) {
   else if (!strcmp(cmd, "set_pin_slot")) {
     const char* pin_id_str = doc["pin_id"];
     uint8_t slot = doc["slot"] | 255;
-    if (!pin_id_str || slot > 3) {
+    if (!pin_id_str || (slot > 3 && slot != 255)) {
       JsonDocument e; e["t"] = "err"; e["c"] = "set_pin_slot"; e["msg"] = "bad args"; send_json_event(e);
       return;
     }
     uint32_t pin_id = (uint32_t)strtoul(pin_id_str, nullptr, 16);
     
-    // Register it in our g_pins array
-    g_pins[slot].pin_device_id = pin_id;
-    g_pins[slot].online = true;
-    g_pins[slot].last_sighting_ms = millis();
+    // If unassigning, clear it from all slots, otherwise assign to specific slot
+    if (slot == 255) {
+      for (int i = 0; i < 4; i++) {
+        if (g_pins[i].pin_device_id == pin_id) {
+          g_pins[i].pin_device_id = 0;
+          g_pins[i].online = false;
+        }
+      }
+    } else {
+      g_pins[slot].pin_device_id = pin_id;
+      g_pins[slot].online = true;
+      g_pins[slot].last_sighting_ms = millis();
+    }
     
     ResQ::PinSetSlotCmdPacket pkt;
     ResQ::fill_pin_set_slot_cmd(pkt, pin_id, slot);

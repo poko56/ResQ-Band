@@ -28,6 +28,8 @@
 #include "soc/rtc_cntl_reg.h"
 #include "ResQConfig.h"
 #include "ResQProtocol.h"
+#include "Sensors.h"
+#include "UWB_Logic.h"
 
 // ----------------------------------------------------------------------------
 // Tunables (override per unit with build_flags if needed)
@@ -66,9 +68,9 @@ static uint32_t g_buzz_until_ms      = 0;
 static uint16_t g_buzz_freq_hz       = 2000;
 static uint8_t  g_buzz_pattern       = 0;
 
-// Vitals - stubbed until sensors land
-static uint8_t  g_hr   = 72;
-static uint8_t  g_spo2 = 98;
+// Vitals - updated by Sensors
+static uint8_t  g_hr   = 0;
+static uint8_t  g_spo2 = 0;
 static int16_t  g_g_x10 = 10;     // 1.0 g
 
 // ----------------------------------------------------------------------------
@@ -118,12 +120,18 @@ static bool tx_packet(const Pkt& pkt) {
 
 static void tx_heartbeat() {
   ++g_seq;
+  read_vitals(&g_hr, &g_spo2);
+  
+  ResQ::TriageLevel triage = ResQ::TRIAGE_GREEN;
+  if (g_hr > VITAL_HR_CRITICAL_HIGH || (g_hr > 0 && g_hr < VITAL_HR_CRITICAL_LOW) || (g_spo2 > 0 && g_spo2 <= VITAL_SPO2_CRITICAL)) triage = ResQ::TRIAGE_RED;
+  else if (g_hr > VITAL_HR_WARN_HIGH || (g_hr > 0 && g_hr < VITAL_HR_WARN_LOW) || (g_spo2 > 0 && g_spo2 <= VITAL_SPO2_WARN)) triage = ResQ::TRIAGE_YELLOW;
+
   ResQ::SOSPacket pkt{};
   ResQ::fill_sos_packet(pkt,
                         ResQ::PKT_HEARTBEAT,
                         g_device_id,
                         g_seq,
-                        ResQ::TRIAGE_GREEN,    // sensors stubbed for now
+                        triage,
                         g_hr,
                         g_spo2,
                         read_battery_pct(),
@@ -143,6 +151,27 @@ static void tx_ring_ack(uint8_t status) {
   ResQ::RingAckPacket pkt;
   ResQ::fill_ring_ack(pkt, g_device_id, status);
   tx_packet(pkt);
+}
+
+static void tx_emergency(uint8_t cause, float max_g) {
+  ++g_seq;
+  read_vitals(&g_hr, &g_spo2);
+  g_g_x10 = (int16_t)(max_g * 10);
+  
+  ResQ::SOSPacket pkt{};
+  ResQ::fill_sos_packet(pkt,
+                        (cause == 1) ? ResQ::PKT_SOS_TAP : ResQ::PKT_SOS_FALL,
+                        g_device_id,
+                        g_seq,
+                        ResQ::TRIAGE_RED, // Emergency implies RED triage
+                        g_hr,
+                        g_spo2,
+                        read_battery_pct(),
+                        g_g_x10);
+  digitalWrite(PIN_LED_STATUS, HIGH);
+  tx_packet(pkt);
+  digitalWrite(PIN_LED_STATUS, LOW);
+  Serial.printf("[SOS] cause=%u max_g=%.1f tx_seq=%u\n", cause, max_g, g_seq);
 }
 
 // ----------------------------------------------------------------------------
@@ -272,6 +301,9 @@ void setup() {
   Serial.printf("[LoRa] init=%s\n", g_lora_ready ? "OK" : "FAIL (will retry)");
 
   if (g_lora_ready) LoRa.onReceive(on_lora_rx);
+  
+  init_sensors();
+  init_uwb();
 }
 
 void loop() {
@@ -299,4 +331,14 @@ void loop() {
 
   // --- Buzzer drive --------------------------------------------------------
   update_buzzer(now);
+
+  // --- Sensor Poll & Emergency Trigger -------------------------------------
+  poll_sensors();
+  poll_uwb();
+  
+  uint8_t sos_cause = 0;
+  float sos_g = 0.0f;
+  if (check_emergency_triggers(&sos_cause, &sos_g)) {
+    tx_emergency(sos_cause, sos_g);
+  }
 }

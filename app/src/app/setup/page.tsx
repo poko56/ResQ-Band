@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useState } from "react";
 import { TopBar } from "@/components/ui/TopBar";
 import { useResQ } from "@/lib/store";
+import { sendCommand } from "@/lib/hubBridge";
 
 const LiveMap = dynamic(() => import("@/components/Map/LiveMap"), {
   ssr: false,
@@ -50,7 +51,7 @@ export default function PinSetupPage() {
     setDraftName("");
   }
 
-  const [selectedUnassigned, setSelectedUnassigned] = useState<Record<number, string>>({});
+  const [selectedUnassigned, setSelectedUnassigned] = useState<Record<string, string>>({});
 
   return (
     <div className="flex h-screen flex-col bg-app-bg">
@@ -69,123 +70,148 @@ export default function PinSetupPage() {
             </p>
           </div>
 
-          <ul className="flex-1 overflow-y-auto divide-y divide-app-divider">
-            {slots.map(({ index, anchor }) => (
-              <li key={index} className="row-hover px-3 py-2">
-                <div className="flex items-start gap-3">
-                  <div
-                    className={`grid h-8 w-8 shrink-0 place-items-center font-mono text-sm font-bold ${
-                      anchor
-                        ? anchor.online ? "bg-status-ok text-app-bg" : "bg-status-warn text-app-bg"
-                        : "bg-app-input text-app-muted border border-dashed border-app-border"
-                    }`}
-                  >
-                    {index}
-                  </div>
+          <div className="flex-1 overflow-y-auto">
+            <div className="px-3 py-2 bg-app-surface border-b border-app-divider text-xs font-bold text-app-muted uppercase">
+              Assigned Slots
+            </div>
+            <ul className="divide-y divide-app-divider border-b border-app-divider">
+              {slots.map(({ index, anchor }) => (
+                <li key={`slot-${index}`} className="row-hover px-3 py-2">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`grid h-8 w-8 shrink-0 place-items-center font-mono text-sm font-bold ${
+                        anchor
+                          ? anchor.online ? "bg-status-ok text-app-bg" : "bg-status-warn text-app-bg"
+                          : "bg-app-input text-app-muted border border-dashed border-app-border"
+                      }`}
+                    >
+                      {index}
+                    </div>
 
-                  <div className="min-w-0 flex-1">
-                    {!anchor ? (
-                      <div className="flex flex-col gap-2">
-                        <div>
-                          <div className="text-xs text-app-muted">Empty slot</div>
-                          <div className="text-2xs text-app-muted">Select an unassigned anchor</div>
+                    <div className="min-w-0 flex-1">
+                      {!anchor ? (
+                        <div className="flex h-8 items-center text-xs text-app-muted">
+                          Empty slot
                         </div>
-                        <div className="flex items-center gap-2">
-                          <select
-                            className="field h-7 text-xs bg-app-input border border-app-border text-app-text"
-                            value={selectedUnassigned[index] || ""}
-                            onChange={(e) => setSelectedUnassigned({ ...selectedUnassigned, [index]: e.target.value })}
-                          >
-                            <option value="">-- select anchor --</option>
-                            {Object.values(unassignedAnchors).map((ua) => (
-                              <option key={ua.id} value={ua.id}>{ua.id} ({timeAgo(ua.lastSeen)})</option>
-                            ))}
-                          </select>
-                          <button
-                            className="btn btn-sm btn-accent"
-                            disabled={!selectedUnassigned[index]}
-                            onClick={() => {
-                              import("@/lib/hubBridge").then(mod => {
-                                mod.sendCommand({ c: "set_pin_slot", pin_id: selectedUnassigned[index], slot: index });
-                              });
+                      ) : editingId === anchor.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            autoFocus
+                            value={draftName}
+                            onChange={(e) => setDraftName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitEdit();
+                              if (e.key === "Escape") { setEditingId(null); setDraftName(""); }
                             }}
-                          >
-                            Assign
-                          </button>
+                            className="field h-6"
+                          />
+                          <button onClick={commitEdit} className="btn btn-sm btn-accent">Save</button>
                         </div>
-                      </div>
-                    ) : editingId === anchor.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          autoFocus
-                          value={draftName}
-                          onChange={(e) => setDraftName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") commitEdit();
-                            if (e.key === "Escape") { setEditingId(null); setDraftName(""); }
-                          }}
-                          className="field h-6"
-                        />
-                        <button onClick={commitEdit} className="btn btn-sm btn-accent">Save</button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-app-text">{anchor.name}</span>
-                          <span className="font-mono text-2xs text-app-muted">{anchor.id}</span>
-                          {anchor.online
-                            ? <span className="pill bg-status-ok text-app-bg">online</span>
-                            : <span className="pill bg-status-warn text-app-bg">offline</span>}
-                        </div>
-                        <div className="font-mono text-2xs text-app-dim mt-0.5">
-                          {anchor.position ? `${anchor.position.lat.toFixed(5)}, ${anchor.position.lng.toFixed(5)}` : "No position"}
-                        </div>
-                        <div className="text-2xs text-app-muted mt-0.5">
-                          last sighting · {timeAgo(anchor.lastSeen)}
-                        </div>
-                        <div className="mt-1.5 flex gap-1">
-                          <button
-                            onClick={() => { setEditingId(anchor.id); setDraftName(anchor.name); }}
-                            className="btn btn-sm"
-                          >
-                            Rename
-                          </button>
-                          <button
-                            onClick={() => {
-                              import("@/lib/hubBridge").then(mod => {
-                                mod.sendCommand({ c: "identify_pin", pin_id: anchor.id });
-                              });
-                            }}
-                            disabled={!anchor.online}
-                            className="btn btn-sm btn-info text-white"
-                          >
-                            ระบุตัว
-                          </button>
-                          <button
-                            onClick={() => setPlacementMode(placementMode === anchor.id ? "none" : anchor.id)}
-                            className={`btn btn-sm ${placementMode === anchor.id ? "btn-accent" : ""}`}
-                          >
-                            {placementMode === anchor.id ? "Cancel Place" : "Place"}
-                          </button>
-                          <button
-                            onClick={() => {
-                              import("@/lib/hubBridge").then(mod => {
-                                mod.sendCommand({ c: "set_pin_slot", pin_id: anchor.id, slot: 255 }); // Unassign
-                              });
-                              removeAnchor(anchor.id);
-                            }}
-                            className="btn btn-sm hover:bg-status-err hover:text-white"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </>
-                    )}
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-app-text">{anchor.name}</span>
+                            <span className="font-mono text-2xs text-app-muted">{anchor.id}</span>
+                            {anchor.online
+                              ? <span className="pill bg-status-ok text-app-bg">online</span>
+                              : <span className="pill bg-status-warn text-app-bg">offline</span>}
+                          </div>
+                          <div className="font-mono text-2xs text-app-dim mt-0.5">
+                            {anchor.position ? `${anchor.position.lat.toFixed(5)}, ${anchor.position.lng.toFixed(5)}` : "No position"}
+                          </div>
+                          <div className="text-2xs text-app-muted mt-0.5">
+                            last sighting · {timeAgo(anchor.lastSeen)}
+                          </div>
+                          <div className="mt-1.5 flex gap-1">
+                            <button
+                              onClick={() => { setEditingId(anchor.id); setDraftName(anchor.name); }}
+                              className="btn btn-sm"
+                            >
+                              Rename
+                            </button>
+                            <button
+                              onClick={() => {
+                                sendCommand({ c: "identify_pin", pin_id: anchor.id });
+                              }}
+                              disabled={!anchor.online}
+                              className="btn btn-sm btn-info text-white"
+                            >
+                              ระบุตัว
+                            </button>
+                            <button
+                              onClick={() => setPlacementMode(placementMode === anchor.id ? "none" : anchor.id)}
+                              className={`btn btn-sm ${placementMode === anchor.id ? "btn-accent" : ""}`}
+                            >
+                              {placementMode === anchor.id ? "Cancel Place" : "Place"}
+                            </button>
+                            <button
+                              onClick={() => {
+                                sendCommand({ c: "set_pin_slot", pin_id: anchor.id, slot: 255 }); // Unassign
+                                removeAnchor(anchor.id);
+                              }}
+                              className="btn btn-sm hover:bg-status-err hover:text-white"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
+                </li>
+              ))}
+            </ul>
+
+            {Object.keys(unassignedAnchors).length > 0 && (
+              <>
+                <div className="px-3 py-2 bg-app-surface border-b border-app-divider text-xs font-bold text-app-muted uppercase mt-4">
+                  New Anchors Found
                 </div>
-              </li>
-            ))}
-          </ul>
+                <ul className="divide-y divide-app-divider">
+                  {Object.values(unassignedAnchors).map((ua) => (
+                    <li key={`ua-${ua.id}`} className="row-hover px-3 py-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-app-text">{ua.id}</span>
+                          <span className="text-2xs text-app-muted">{timeAgo(ua.lastSeen)}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            sendCommand({ c: "identify_pin", pin_id: ua.id });
+                          }}
+                          className="btn btn-sm btn-info text-white"
+                        >
+                          ระบุตัว
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="field h-7 text-xs bg-app-input border border-app-border text-app-text flex-1"
+                          value={selectedUnassigned[ua.id] || ""}
+                          onChange={(e) => setSelectedUnassigned({ ...selectedUnassigned, [ua.id]: e.target.value })}
+                        >
+                          <option value="">-- Select Slot --</option>
+                          {slots.filter(s => !s.anchor).map(s => (
+                            <option key={s.index} value={s.index}>Slot {s.index}</option>
+                          ))}
+                        </select>
+                        <button
+                          className="btn btn-sm btn-accent"
+                          disabled={!selectedUnassigned[ua.id]}
+                          onClick={() => {
+                            const slot = parseInt(selectedUnassigned[ua.id], 10);
+                            sendCommand({ c: "set_pin_slot", pin_id: ua.id, slot });
+                          }}
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
 
           <div className="border-t border-app-divider bg-app-surface px-3 py-1.5 text-2xs text-app-muted">
             Position is used to estimate Band location from strongest pin RSSI
