@@ -17,17 +17,28 @@ static const uint8_t MSG_RESP   = 0x02;
 static const uint8_t MSG_FINAL  = 0x03;
 static const uint8_t MSG_RESULT = 0x04;
 
-static const uint32_t RESP_DELAY_UUS  = 15000;
-static const uint32_t RESULT_DELAY_UUS = 10000;
+static const uint32_t RESP_DELAY_UUS  = 40000;
+static const uint32_t RESULT_DELAY_UUS = 40000;
 static const uint32_t RANGE_TIMEOUT_MS = 120;
 
 static volatile bool txComplete = false;
 static volatile bool rxComplete = false;
 static volatile bool irqPending = false;
+volatile uint32_t g_irq_count = 0;
 
 static void onTxDone() { txComplete = true; }
 static void onRxDone() { rxComplete = true; }
-static void uwb_isr()  { irqPending = true; }
+#if defined(ESP8266)
+void ICACHE_RAM_ATTR uwb_isr() {
+    irqPending = true;
+    g_irq_count++;
+}
+#else
+void IRAM_ATTR uwb_isr() {
+    irqPending = true;
+    g_irq_count++;
+}
+#endif
 
 static uint32_t uusToUwbTicks(uint32_t uus) { return uus * UUS_TO_UWB_TIME; }
 static uint64_t diff40(uint64_t later, uint64_t earlier) { return (later - earlier) & UWB40_MASK; }
@@ -95,7 +106,7 @@ void poll_uwb() {
   if (rxComplete) {
       rxComplete = false;
       uint16_t rxLength = 0;
-      uint8_t rxBuffer[128];
+      uint8_t rxBuffer[1024];
       uint64_t rxTs = uwb.getReceiveTimestamp();
       
       if (uwb.readReceivedData(rxBuffer, rxLength) && validHeader(rxBuffer, rxLength)) {
@@ -106,15 +117,27 @@ void poll_uwb() {
               Serial.println("[UWB] RX POLL");
               savedSeq = seq;
               savedPollRxTs = rxTs;
-              savedRespTxTs = uwb.calculateDelayedTransmitTimestamp(savedPollRxTs, uusToUwbTicks(RESP_DELAY_UUS));
               
-              uint8_t respFrame[14];
+              // We don't use calculateDelayedTransmitTimestamp anymore, we do it directly to fix the library bug
+              // The library calculateDelayedTransmitTimestamp adds antennaDelay which messes up the payload timestamp
+              uint64_t targetTxTs = (savedPollRxTs + uusToUwbTicks(RESP_DELAY_UUS)) & UWB40_MASK;
+              
+              // EXACT math matching transmitDelayedAt() inside the DW3000 library:
+              uint64_t delayedStart = (targetTxTs - uwb.getTxAntennaDelay()) & UWB40_MASK;
+              uint32_t delayedReg = (uint32_t)(delayedStart >> 8);
+              delayedReg &= 0xFFFFFFFEUL;
+              uint64_t actualTxTs = ((((uint64_t)delayedReg) << 8) + uwb.getTxAntennaDelay()) & UWB40_MASK;
+              
+              uint8_t respFrame[9];
               makeHeader(respFrame, MSG_RESP, savedSeq);
-              writeTs40(respFrame + 4, savedPollRxTs);
-              writeTs40(respFrame + 9, savedRespTxTs);
+              
+              // Tell initiator exactly how long we delayed
+              uint64_t replyDelay = diff40(actualTxTs, savedPollRxTs);
+              writeTs40(respFrame + 4, replyDelay);
               
               txComplete = false;
-              if (uwb.transmitDelayedAt(respFrame, sizeof(respFrame), savedRespTxTs)) {
+              // Pass targetTxTs to transmitDelayedAt, the library will subtract antennaDelay and it will emit exactly at actualTxTs
+              if (uwb.transmitDelayedAt(respFrame, sizeof(respFrame), targetTxTs)) {
                   responderState = RESP_WAIT_FINAL;
                   stateStartedMs = millis();
                   Serial.println("[UWB] TX RESP OK");
@@ -124,24 +147,10 @@ void poll_uwb() {
               }
               uwb.startReceive();
           } 
-          else if (responderState == RESP_WAIT_FINAL && type == MSG_FINAL && seq == savedSeq && rxLength >= 19) {
-              uint64_t finalRxTs = rxTs;
-              uint64_t initiatorPollTxTs  = readTs40(rxBuffer + 4);
-              uint64_t initiatorRespRxTs  = readTs40(rxBuffer + 9);
-              uint64_t initiatorFinalTxTs = readTs40(rxBuffer + 14);
-              
-              double distanceM = calculateDsTwrDistanceM(initiatorPollTxTs, savedPollRxTs, savedRespTxTs, initiatorRespRxTs, initiatorFinalTxTs, finalRxTs);
-              
-              int32_t distanceMm = (int32_t)(distanceM * 1000.0);
-              uint8_t resultFrame[8];
-              makeHeader(resultFrame, MSG_RESULT, savedSeq);
-              writeI32(resultFrame + 4, distanceMm);
-              
-              uint64_t resultTxTs = uwb.calculateDelayedTransmitTimestamp(finalRxTs, uusToUwbTicks(RESULT_DELAY_UUS));
-              txComplete = false;
-              uwb.transmitDelayedAt(resultFrame, sizeof(resultFrame), resultTxTs);
-              
-              Serial.printf("[UWB] RX FINAL, Dist = %.2f m\n", distanceM);
+          else if (responderState == RESP_WAIT_FINAL && type == MSG_RESULT && seq == savedSeq && rxLength >= 8) {
+              int32_t distanceMm = (int32_t)rxBuffer[4] | ((int32_t)rxBuffer[5] << 8) | ((int32_t)rxBuffer[6] << 16) | ((int32_t)rxBuffer[7] << 24);
+              double distanceM = distanceMm / 1000.0;
+              Serial.printf("[UWB] RX RESULT, Dist = %.2f m\n", distanceM);
               
               responderState = RESP_WAIT_POLL;
               uwb.startReceive();
@@ -152,8 +161,15 @@ void poll_uwb() {
   }
   
   if (responderState == RESP_WAIT_FINAL && millis() - stateStartedMs > RANGE_TIMEOUT_MS) {
-      Serial.println("[UWB] FINAL RX TIMEOUT");
+      Serial.println("[UWB] RESULT RX TIMEOUT");
       responderState = RESP_WAIT_POLL;
+      uwb.startReceive();
+  }
+  
+  static uint32_t lastRxArmMs = 0;
+  if (responderState == RESP_WAIT_POLL && millis() - lastRxArmMs > 1000) {
+      lastRxArmMs = millis();
+      Serial.printf("[UWB-DEBUG] IRQ_Count=%u, rxComplete=%u, state=%u\n", g_irq_count, rxComplete, responderState);
       uwb.startReceive();
   }
 }

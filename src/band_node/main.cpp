@@ -31,6 +31,10 @@
 #include "Sensors.h"
 #include "UWB_Logic.h"
 
+// Disable brownout detector
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+
 // ----------------------------------------------------------------------------
 // Tunables (override per unit with build_flags if needed)
 // ----------------------------------------------------------------------------
@@ -276,8 +280,8 @@ static bool should_tx_heartbeat(uint32_t now) {
 void setup() {
   // LoRa TX surge dips VCC under cheap USB power -> brown-out reset loop.
   // Disable BOD so we boot reliably; re-enable in production with proper PSU.
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
+  
   Serial.begin(115200);
   delay(SETUP_DELAY_MS);
 
@@ -341,7 +345,7 @@ void loop() {
   update_buzzer(now);
 
   // --- Sensor Poll & Emergency Trigger -------------------------------------
-  poll_sensors();
+  // poll_sensors(); // Temporarily disabled to prevent I2C timeouts from blocking UWB
   poll_uwb();
   
   uint8_t sos_cause = 0;

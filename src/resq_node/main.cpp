@@ -13,11 +13,11 @@ enum SearchMode : uint8_t {
 };
 
 static uint32_t   g_device_id    = 0;
-static SearchMode g_mode         = MODE_LORA_SWEEP;
+static SearchMode g_mode         = MODE_UWB_PINPOINT;
 static uint32_t   g_last_tick_ms = 0;
 
 // Current locked target state
-static uint32_t   g_target_id    = 0;
+static uint32_t   g_target_id    = 0x8EDF948C; // Dummy ID for testing
 static int16_t    g_last_rssi    = -120;
 static uint8_t    g_last_hr      = 0;
 static uint8_t    g_last_spo2    = 0;
@@ -76,8 +76,8 @@ static bool connect_lora() {
   LoRa.setCodingRate4(LORA_CODING_RATE);
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.enableCrc();
-  LoRa.onReceive(on_lora_rx);
-  LoRa.receive();
+  // LoRa.onReceive(on_lora_rx); // Disabled to prevent ISR conflicts
+  // LoRa.receive(); // Not using async receive anymore
   return true;
 }
 
@@ -192,12 +192,24 @@ void setup() {
   
   // 4. UWB init deferred - only enter UWB mode on button press
   // init_uwb_initiator() is called from mode-switch handler
-  
-  display_lora_sweep(0, 0, 0, 0); // initial draw
+  if (g_mode == MODE_UWB_PINPOINT) {
+    LoRa.onReceive(NULL); // Stop LoRa interrupts
+    LoRa.sleep();         // Put LoRa to sleep to release SPI bus
+    init_uwb_initiator();
+    display_uwb_pinpoint(g_target_id, -1.0f, 0.0f);
+  } else {
+    display_lora_sweep(0, 0, 0, 0); // initial draw
+  }
 }
 
 void loop() {
   const uint32_t now = millis();
+  
+  static uint32_t alive_print_ms = 0;
+  if (now - alive_print_ms > 2000) {
+      alive_print_ms = now;
+      Serial.printf("[resq_node] Alive. Mode: %s\n", mode_label(g_mode));
+  }
 
   // --- Hybrid Polling + Interrupt ---
   if (!g_lora_rx_flag && g_mode == MODE_LORA_SWEEP) {

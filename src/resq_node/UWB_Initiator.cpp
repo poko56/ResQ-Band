@@ -18,7 +18,7 @@ static const uint8_t MSG_RESP   = 0x02;
 static const uint8_t MSG_FINAL  = 0x03;
 static const uint8_t MSG_RESULT = 0x04;
 
-static const uint32_t FINAL_DELAY_UUS = 15000;
+static const uint32_t FINAL_DELAY_UUS = 40000;
 static const uint32_t RANGE_TIMEOUT_MS = 120;
 
 static volatile bool txComplete = false;
@@ -74,7 +74,10 @@ void init_uwb_initiator() {
 }
 
 void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg) {
-  if (target_id == 0) return;
+  if (target_id == 0) {
+      g_webui_debug = "Waiting for target lock (LoRa)...";
+      return;
+  }
   
   // Handle UWB interrupts
   if (irqPending || digitalRead(PIN_UWB_IRQ)) {
@@ -82,7 +85,7 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
       uwb.onIRQ();
   }
   
-  // Start ranging by sending POLL
+  // Send POLL
   uint8_t frame[4];
   currentSeq++;
   makeHeader(frame, MSG_POLL, currentSeq);
@@ -102,7 +105,7 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
       delay(2);
   }
   
-  if (!txComplete) { g_webui_debug = "ERR: POLL TX Timeout"; Serial.println("[UWB] POLL TX Timeout"); *distance_m = last_distance; return; }
+  if (!txComplete) { g_webui_debug = "ERR: POLL TX Timeout"; *distance_m = last_distance; return; }
   
   pollTxTs = uwb.getTransmitTimestamp();
   uwb.startReceive();
@@ -115,38 +118,49 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
       delay(2);
   }
   
-  if (!rxComplete) { g_webui_debug = "ERR: RESP RX Timeout"; Serial.println("[UWB] RESP RX Timeout"); *distance_m = last_distance; return; }
+  if (!rxComplete) { g_webui_debug = "ERR: RESP RX Timeout"; *distance_m = last_distance; return; }
   
   uint8_t rxBuffer[128];
   uint16_t rxLength = 0;
   uint64_t rxTs = uwb.getReceiveTimestamp();
-  if (!uwb.readReceivedData(rxBuffer, rxLength)) { g_webui_debug = "ERR: RESP RX read"; Serial.println("[UWB] RESP RX read err"); *distance_m = last_distance; return; }
-  if (!validHeader(rxBuffer, rxLength) || rxBuffer[2] != MSG_RESP || rxBuffer[3] != currentSeq) { 
+  if (!uwb.readReceivedData(rxBuffer, rxLength)) { g_webui_debug = "ERR: RESP RX read"; *distance_m = last_distance; return; }
+  if (!validHeader(rxBuffer, rxLength) || rxBuffer[2] != MSG_RESP || rxBuffer[3] != currentSeq || rxLength < 9) { 
       g_webui_debug = "ERR: RESP format";
-      Serial.println("[UWB] RESP format err");
       uwb.startReceive(); 
       *distance_m = last_distance;
       return; 
   }
   
   respRxTs = rxTs;
+  uint64_t replyDelay = readTs40(rxBuffer + 4);
   
-  // Send FINAL
-  uint64_t finalTxTs = uwb.calculateDelayedTransmitTimestamp(respRxTs, uusToUwbTicks(FINAL_DELAY_UUS));
-  uint8_t finalFrame[19];
-  makeHeader(finalFrame, MSG_FINAL, currentSeq);
-  writeTs40(finalFrame + 4,  pollTxTs);
-  writeTs40(finalFrame + 9,  respRxTs);
-  writeTs40(finalFrame + 14, finalTxTs);
+  uint64_t roundTrip = diff40(respRxTs, pollTxTs);
+  if (roundTrip < replyDelay) {
+      g_webui_debug = "ERR: NEGATIVE TOF";
+      uwb.startReceive();
+      *distance_m = last_distance;
+      return;
+  }
+  
+  double tof = (roundTrip - replyDelay) / 2.0;
+  double distanceM = tof * DISTANCE_PER_UWB_TICK_M;
+  
+  int32_t distanceMm = (int32_t)(distanceM * 1000.0);
+  last_distance = distanceM;
+  g_webui_debug = "UWB OK: " + String(last_distance, 2) + "m";
+  
+  // Send RESULT back to band_node so it knows the distance
+  uint8_t resultFrame[8];
+  makeHeader(resultFrame, MSG_RESULT, currentSeq);
+  writeTs40(resultFrame + 4, (uint64_t)distanceMm); // cheat: just write 4 bytes using standard function or direct
+  // Wait, writeTs40 writes 5 bytes, let's just write exactly 4 bytes for int32
+  resultFrame[4] = distanceMm & 0xFF;
+  resultFrame[5] = (distanceMm >> 8) & 0xFF;
+  resultFrame[6] = (distanceMm >> 16) & 0xFF;
+  resultFrame[7] = (distanceMm >> 24) & 0xFF;
   
   txComplete = false;
-  if (!uwb.transmitDelayedAt(finalFrame, sizeof(finalFrame), finalTxTs)) { 
-      g_webui_debug = "ERR: FINAL TX start";
-      Serial.println("[UWB] FINAL TX start err");
-      uwb.startReceive(); 
-      *distance_m = last_distance;
-      return; 
-  }
+  uwb.transmit(resultFrame, sizeof(resultFrame)); // Transmit immediately
   
   startMs = millis();
   while (!txComplete && millis() - startMs < 50) {
@@ -154,34 +168,6 @@ void poll_uwb_initiator(uint32_t target_id, float* distance_m, float* angle_deg)
       uwb.onIRQ();
       delay(2);
   }
-  
-  if (!txComplete) { g_webui_debug = "ERR: FINAL TX Timeout"; Serial.println("[UWB] FINAL TX Timeout"); uwb.startReceive(); *distance_m = last_distance; return; }
-  
-  uwb.startReceive();
-  rxComplete = false;
-  
-  // Wait for RESULT
-  startMs = millis();
-  while (!rxComplete && millis() - startMs < RANGE_TIMEOUT_MS) {
-      if (irqPending || digitalRead(PIN_UWB_IRQ)) { irqPending = false; }
-      uwb.onIRQ();
-      delay(2);
-  }
-  
-  if (!rxComplete) { g_webui_debug = "ERR: RESULT RX Timeout"; Serial.println("[UWB] RESULT RX Timeout"); *distance_m = last_distance; return; }
-  
-  rxTs = uwb.getReceiveTimestamp();
-  if (!uwb.readReceivedData(rxBuffer, rxLength) || !validHeader(rxBuffer, rxLength) || rxBuffer[2] != MSG_RESULT || rxBuffer[3] != currentSeq) {
-      g_webui_debug = "ERR: RESULT format";
-      Serial.println("[UWB] RESULT format err");
-      uwb.startReceive();
-      *distance_m = last_distance;
-      return;
-  }
-  
-  int32_t distanceMm = readI32(rxBuffer + 4);
-  last_distance = distanceMm / 1000.0f;
-  g_webui_debug = "UWB OK: " + String(last_distance, 2) + "m";
   
   *distance_m = last_distance;
   *angle_deg = 0.0f;

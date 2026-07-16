@@ -8,6 +8,7 @@ uint8_t current_spo2 = 0;
 bool s_fall_detected = false;
 bool s_tap_detected = false;
 float s_max_g_force = 0.0f;
+bool s_mpu_found = false;
 
 static const byte RATE_SIZE = 4;
 static byte rates[RATE_SIZE]; 
@@ -22,8 +23,10 @@ void init_sensors() {
   // 1. Init MPU6050
   if (!mpu.begin()) {
     Serial.println("[Sensors] Failed to find MPU6050 chip");
+    s_mpu_found = false;
   } else {
     Serial.println("[Sensors] MPU6050 Found!");
+    s_mpu_found = true;
     mpu.setHighPassFilter(MPU6050_HIGHPASS_0_63_HZ);
     mpu.setMotionDetectionThreshold(10); // Tap threshold
     mpu.setMotionDetectionDuration(20);
@@ -87,27 +90,29 @@ void poll_sensors() {
     current_spo2 = 0; // No finger
   }
 
-  // Update MPU6050
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-  
-  // Calculate total G vector (1g = 9.8 m/s^2)
-  float total_g = sqrt(a.acceleration.x * a.acceleration.x + 
-                       a.acceleration.y * a.acceleration.y + 
-                       a.acceleration.z * a.acceleration.z) / 9.81f;
-  
-  if (total_g > s_max_g_force) {
-    s_max_g_force = total_g;
-  }
-  
-  // Free fall threshold (near 0 G) or High G impact
-  if (total_g > (FALL_G_THRESHOLD_X10 / 10.0f)) {
-    s_fall_detected = true;
-  }
-  
-  // Tap detection via interrupt flag
-  if (mpu.getMotionInterruptStatus()) {
-    s_tap_detected = true;
+  // Update MPU6050 only if found
+  if (s_mpu_found) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    
+    // Calculate total G vector (1g = 9.8 m/s^2)
+    float total_g = sqrt(a.acceleration.x * a.acceleration.x + 
+                         a.acceleration.y * a.acceleration.y + 
+                         a.acceleration.z * a.acceleration.z) / 9.81f;
+    
+    if (total_g > s_max_g_force) {
+      s_max_g_force = total_g;
+    }
+    
+    // Free fall threshold (near 0 G) or High G impact
+    if (total_g > (FALL_G_THRESHOLD_X10 / 10.0f)) {
+      s_fall_detected = true;
+    }
+    
+    // Tap detection via interrupt flag
+    if (mpu.getMotionInterruptStatus()) {
+      s_tap_detected = true;
+    }
   }
 }
 
