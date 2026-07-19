@@ -530,7 +530,12 @@ static void tx_assignment() {
                         (uint8_t)(best_pin < 0 ? 0xFF : best_pin),
                         best_rssi,
                         (ResQ::TriageLevel)b.last_packet.triage_level,
-                        reason);
+                        reason,
+                        // wearer vitals from the band's last heartbeat
+                        b.last_packet.heart_rate,
+                        b.last_packet.spo2,
+                        b.last_packet.battery_pct,
+                        b.last_packet.last_g_force_x10);
 
   LoRa.idle();
   if (LoRa.beginPacket()) {
@@ -553,6 +558,9 @@ static void tx_assignment() {
   doc["rssi"]    = best_rssi;
   doc["triage"]  = b.last_packet.triage_level;
   doc["reason"]  = ResQ::assign_reason_label(reason);
+  doc["hr"]      = b.last_packet.heart_rate;
+  doc["spo2"]    = b.last_packet.spo2;
+  doc["batt"]    = b.last_packet.battery_pct;
   doc["ts"]      = (uint32_t)millis();
   send_json_event(doc);
 
@@ -700,7 +708,10 @@ static void handle_serial_command(const char* line, size_t len) {
     uint32_t band = parse_hex32(doc["band"] | "");
     int16_t boost = doc["boost"] | 1000;
     int idx = find_or_create_band(band);
-    if (idx >= 0) g_bands[idx].manual_boost = boost;
+    if (idx >= 0) {
+      g_bands[idx].manual_boost = boost;
+      g_bands[idx].is_assigned = false; // Force re-evaluation by pick_dispatch_target
+    }
     JsonDocument r; r["t"] = "ack"; r["c"] = "manual_priority"; send_json_event(r);
   }
   else if (!strcmp(cmd, "mark_rescued")) {

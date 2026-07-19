@@ -20,7 +20,7 @@
 #define LORA_SPREADING_FACTOR  7
 #define LORA_BANDWIDTH         125E3
 #define LORA_CODING_RATE       5
-#define LORA_TX_POWER_DBM      14
+#define LORA_TX_POWER_DBM      10
 #define LORA_SYNC_WORD         0xA5
 
 // ---- TDMA schedule -------------------------------------------------------

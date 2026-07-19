@@ -1,12 +1,6 @@
 "use client";
 
-import { TopBar } from "@/components/ui/TopBar";
 import { useResQ } from "@/lib/store";
-import dynamic from "next/dynamic";
-
-const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
-  ssr: false,
-});
 
 const TYPE_META: Record<string, { th: string; bg: string }> = {
   hub_connected:         { th: "hub up",        bg: "bg-status-info" },
@@ -27,10 +21,7 @@ export default function TimelinePage() {
   const timeline = useResQ((s) => s.timeline);
 
   return (
-    <div className="flex h-screen flex-col bg-app-bg">
-      <TopBar />
-      <HubStatusBanner />
-
+    <div className="flex flex-1 flex-col overflow-hidden">
       <div className="panel-header justify-between">
         <span>Event log</span>
         <span className="font-mono text-app-dim normal-case">{timeline.length} events</span>

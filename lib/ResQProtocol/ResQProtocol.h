@@ -138,9 +138,16 @@ struct __attribute__((packed)) AssignmentPacket {
   int16_t  best_rssi;
   uint8_t  triage_level;       // hint for handheld display
   uint8_t  reason_code;        // AssignReason
+  // Wearer vitals snapshot (from the band's last heartbeat, as MainNode saw
+  // it). Travels with the dispatch so the handheld can show who it is fetching
+  // and their condition immediately, without having heard the band directly.
+  uint8_t  heart_rate;
+  uint8_t  spo2;
+  uint8_t  battery_pct;
+  int16_t  last_g_force_x10;
   uint16_t crc16;
 };
-static_assert(sizeof(AssignmentPacket) == 19, "AssignmentPacket layout drifted");
+static_assert(sizeof(AssignmentPacket) == 24, "AssignmentPacket layout drifted");
 
 // ============================================================================
 // FoundPacket - ResQ-Node reports outcome of rescue attempt
@@ -283,7 +290,11 @@ void fill_assignment(AssignmentPacket& pkt,
                      uint8_t best_pin_index,
                      int16_t best_rssi,
                      TriageLevel triage,
-                     AssignReason reason);
+                     AssignReason reason,
+                     uint8_t heart_rate,
+                     uint8_t spo2,
+                     uint8_t battery_pct,
+                     int16_t last_g_force_x10);
 bool verify_assignment(const AssignmentPacket& pkt);
 
 // FoundPacket

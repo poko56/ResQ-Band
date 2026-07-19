@@ -29,7 +29,6 @@
 #include "ResQConfig.h"
 #include "ResQProtocol.h"
 #include "Sensors.h"
-#include "UWB_Logic.h"
 
 // Disable brownout detector
 #include "soc/soc.h"
@@ -80,8 +79,13 @@ static int16_t  g_g_x10 = 10;     // 1.0 g
 // ----------------------------------------------------------------------------
 // LoRa init (non-fatal; the loop retries every LORA_RETRY_MS)
 // ----------------------------------------------------------------------------
+static volatile bool g_lora_rx_flag = false;
+static void IRAM_ATTR lora_isr() {
+  g_lora_rx_flag = true;
+}
+
 static bool connect_lora() {
-  SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_SS);
+  SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, -1);
   LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
   if (!LoRa.begin(LORA_FREQUENCY)) return false;
   LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
@@ -90,6 +94,10 @@ static bool connect_lora() {
   LoRa.setSyncWord(LORA_SYNC_WORD);
   LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.enableCrc();
+  
+  pinMode(PIN_LORA_DIO0, INPUT);
+  attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO0), lora_isr, RISING);
+  
   LoRa.receive();   // start listening
   return true;
 }
@@ -98,14 +106,10 @@ static bool connect_lora() {
 // Battery
 // ----------------------------------------------------------------------------
 static uint8_t read_battery_pct() {
-  // Read multiple samples for stability
-  uint32_t sum = 0;
-  for (uint8_t i = 0; i < 8; ++i) sum += analogRead(PIN_VBAT_ADC);
-  const float raw = sum / 8.0f;
-  const float mv  = (raw / ADC_FULL_SCALE) * ADC_REF_MV * VBAT_DIVIDER_RATIO;
-  if (mv >= VBAT_FULL_MV)  return 100;
-  if (mv <= VBAT_EMPTY_MV) return 0;
-  return (uint8_t)((mv - VBAT_EMPTY_MV) * 100.0f / (VBAT_FULL_MV - VBAT_EMPTY_MV));
+  // No battery-monitor hardware in this build. Report 0 = "not measured";
+  // the web/handheld render 0 as "--" and the ring command no longer gates
+  // on battery level.
+  return 0;
 }
 
 // ----------------------------------------------------------------------------
@@ -189,11 +193,7 @@ static void handle_beacon(const ResQ::BeaconPacket& pkt) {
 
 static void handle_ring_cmd(const ResQ::RingCmdPacket& pkt) {
   if (pkt.target_band_id != g_device_id) return;   // not for me
-  const uint8_t batt = read_battery_pct();
-  if (batt < BATT_LOW_PCT) {
-    tx_ring_ack(2);     // status 2 = battery too low
-    return;
-  }
+  // No battery gate (no battery-monitor hardware) - always ring.
   g_buzz_until_ms = millis() + pkt.duration_ms;
   g_buzz_freq_hz  = pkt.buzz_freq_hz;
   g_buzz_pattern  = pkt.pattern;
@@ -278,15 +278,17 @@ static bool should_tx_heartbeat(uint32_t now) {
 // Setup / loop
 // ============================================================================
 void setup() {
-  // LoRa TX surge dips VCC under cheap USB power -> brown-out reset loop.
-  // Disable BOD so we boot reliably; re-enable in production with proper PSU.
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
-  
+  // NOTE: brownout detector left ENABLED. Clobbering RTC_CNTL_BROWN_OUT_REG
+  // was hanging the BT controller init (NimBLEDevice::init). With LoRa + sensors
+  // now on a separate AMS1117 rail, the ESP32's own 3V3 is stable enough to
+  // keep BOD on. If it brownout-resets, power the ESP32 from a stronger 5V.
+
   Serial.begin(115200);
   delay(SETUP_DELAY_MS);
 
   pinMode(PIN_LED_STATUS, OUTPUT);
   pinMode(PIN_BUZZER,     OUTPUT);
+
   digitalWrite(PIN_LED_STATUS, LOW);
   digitalWrite(PIN_BUZZER,     LOW);
 
@@ -300,21 +302,27 @@ void setup() {
                 g_device_id, (unsigned)BAND_INDEX,
                 (unsigned)(TDMA_SLOT_BAND_BASE + BAND_INDEX));
 
+  // --- LoRa ----------------------------------------------------------------
+  delay(200); // let the rail settle after boot
   g_lora_ready = connect_lora();
   g_last_lora_retry_ms = millis();
   Serial.printf("[LoRa] init=%s\n", g_lora_ready ? "OK" : "FAIL (will retry)");
 
-  // if (g_lora_ready) LoRa.onReceive(on_lora_rx);
-  
+  // --- Sensors -------------------------------------------------------------
+  // MPU6050 (fall/tap) + MAX30102 (HR), powered from the AMS1117 rail.
+  // BLE last-metre beacon removed for now: the BT-radio cold-start spike
+  // brown-outs the ESP32 rail on USB power. Re-add once the ESP32 has a
+  // bulk cap / stronger 5V supply.
   init_sensors();
-  init_uwb();
+  Serial.println("[Setup] complete, entering loop");
 }
 
 void loop() {
   const uint32_t now = millis();
 
   // --- Poll LoRa instead of using ISR ---
-  if (g_lora_ready) {
+  if (g_lora_ready && g_lora_rx_flag) {
+    g_lora_rx_flag = false;
     int packet_size = LoRa.parsePacket();
     if (packet_size) {
       on_lora_rx(packet_size);
@@ -326,7 +334,6 @@ void loop() {
     g_last_lora_retry_ms = now;
     g_lora_ready = connect_lora();
     if (g_lora_ready) {
-      // LoRa.onReceive(on_lora_rx);
       Serial.println("[LoRa] recovered");
     }
   }
@@ -345,9 +352,8 @@ void loop() {
   update_buzzer(now);
 
   // --- Sensor Poll & Emergency Trigger -------------------------------------
-  // poll_sensors(); // Temporarily disabled to prevent I2C timeouts from blocking UWB
-  poll_uwb();
-  
+  poll_sensors();
+
   uint8_t sos_cause = 0;
   float sos_g = 0.0f;
   if (check_emergency_triggers(&sos_cause, &sos_g)) {

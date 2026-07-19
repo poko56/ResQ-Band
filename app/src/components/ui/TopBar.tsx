@@ -18,7 +18,14 @@ export function TopBar() {
   const wristbandCount = useResQ((s) => Object.keys(s.wristbands).length);
   const searchMode     = useResQ((s) => s.searchMode);
   const emergencyMode  = useResQ((s) => s.hub.emergencyMode);
+  const resetIncident  = useResQ((s) => s.resetIncident);
   const pathname       = usePathname();
+
+  function handleReset() {
+    if (confirm("เริ่มภารกิจใหม่? ข้อมูลเสา, ตำแหน่ง, และ event log ทั้งหมดจะถูกล้าง (รายชื่อกำไลจะยังอยู่)")) {
+      resetIncident();
+    }
+  }
 
   return (
     <header className="flex h-8 items-stretch bg-app-surface border-b border-app-divider select-none">
@@ -67,6 +74,14 @@ export function TopBar() {
           <span className="text-2xs uppercase tracking-wider text-app-muted ml-1">Bands</span>
           <span className="font-mono text-xs text-status-info">{wristbandCount}</span>
         </div>
+
+        <button
+          onClick={handleReset}
+          title="เริ่มภารกิจใหม่ (ล้าง anchors, sightings, event log)"
+          className="flex items-center px-3 border-l border-app-divider text-2xs uppercase tracking-wider text-app-dim hover:text-status-err hover:bg-app-raised"
+        >
+          Reset
+        </button>
       </div>
     </header>
   );

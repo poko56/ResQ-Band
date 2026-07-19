@@ -1,16 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { TopBar } from "@/components/ui/TopBar";
-import dynamic from "next/dynamic";
 import { TagInput } from "@/components/ui/TagInput";
 import { useResQ } from "@/lib/store";
 import { compressImageFile, approxKb } from "@/lib/photo";
 import type { BandRole } from "@/lib/types";
-
-const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
-  ssr: false,
-});
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
 const COMMON_ALLERGIES   = ["เพนนิซิลลิน", "อาหารทะเล", "ถั่ว", "นม", "ไข่", "ฝุ่น"];
@@ -90,12 +84,8 @@ export default function RegisterPage() {
   const list = Object.values(wristbands).sort((a, b) => b.registeredAt - a.registeredAt);
 
   return (
-    <div className="flex h-screen flex-col bg-app-bg">
-      <TopBar />
-      <HubStatusBanner />
-
-      <div className="grid flex-1 grid-cols-[1fr_380px] overflow-hidden divide-x divide-app-divider">
-        {/* Form */}
+    <div className="grid flex-1 grid-cols-[1fr_380px] overflow-hidden divide-x divide-app-divider">
+      {/* Form */}
         <form onSubmit={submit} className="overflow-y-auto bg-app-bg">
           <div className="panel-header">Enroll survivor</div>
 
@@ -229,7 +219,6 @@ export default function RegisterPage() {
             </ul>
           )}
         </aside>
-      </div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { ClientLayout } from "@/components/ui/ClientLayout";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +17,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th">
-      <body className="h-screen overflow-hidden bg-app-bg text-app-text">{children}</body>
+      <body className="flex h-screen flex-col overflow-hidden bg-app-bg text-app-text">
+        <ClientLayout>
+          {children}
+        </ClientLayout>
+      </body>
     </html>
   );
 }

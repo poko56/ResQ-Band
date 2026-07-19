@@ -64,8 +64,6 @@ export function WristbandList() {
                 {s ? (
                   <>
                     <span>HR <span className="text-app-text">{s.heartRate || "—"}</span></span>
-                    <span>SpO₂ <span className="text-app-text">{s.spo2 || "—"}</span></span>
-                    <span>BAT <span className="text-app-text">{s.batteryPct}%</span></span>
                     <span className="ml-auto text-app-muted">{timeAgo(s.lastSeen)}</span>
                   </>
                 ) : (

@@ -2,7 +2,6 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import { TopBar } from "@/components/ui/TopBar";
 import { useResQ } from "@/lib/store";
 import { sendCommand } from "@/lib/hubBridge";
 
@@ -20,14 +19,6 @@ function timeAgo(ts?: number) {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   return `${Math.floor(s / 3600)}h ago`;
 }
-
-const HubBridgeClient = dynamic(() => import("@/components/Hub/HubBridgeClient"), {
-  ssr: false,
-});
-
-const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
-  ssr: false,
-});
 
 export default function PinSetupPage() {
   const anchors          = useResQ((s) => s.anchors);
@@ -54,13 +45,8 @@ export default function PinSetupPage() {
   const [selectedUnassigned, setSelectedUnassigned] = useState<Record<string, string>>({});
 
   return (
-    <div className="flex h-screen flex-col bg-app-bg">
-      <HubBridgeClient />
-      <TopBar />
-      <HubStatusBanner />
-
-      <div className="grid flex-1 grid-cols-[360px_1fr] overflow-hidden divide-x divide-app-divider">
-        {/* Left: pin admin */}
+    <div className="grid flex-1 grid-cols-[360px_1fr] overflow-hidden divide-x divide-app-divider">
+      {/* Left: pin admin */}
         <aside className="flex flex-col bg-app-panel">
           <div className="panel-header">Anchors · 4 TDMA slots</div>
 
@@ -227,7 +213,6 @@ export default function PinSetupPage() {
             </div>
           )}
         </main>
-      </div>
     </div>
   );
 }

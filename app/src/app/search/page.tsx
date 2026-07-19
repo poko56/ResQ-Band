@@ -1,13 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { TopBar } from "@/components/ui/TopBar";
+import { useEffect, useMemo, useState } from "react";
 import { useResQ } from "@/lib/store";
-
-const HubStatusBanner = dynamic(() => import("@/components/Hub/HubStatusBanner").then(mod => mod.HubStatusBanner), {
-  ssr: false,
-});
 import { TRIAGE_COLORS, TRIAGE_LABELS_TH } from "@/lib/triage";
 import type { Sighting, Wristband } from "@/lib/types";
 
@@ -101,10 +96,7 @@ export default function SearchPage() {
   }, [sightings]);
 
   return (
-    <div className="flex h-screen flex-col bg-app-bg">
-      <TopBar />
-      <HubStatusBanner />
-
+    <div className="flex flex-1 flex-col overflow-hidden">
       {/* Mode strip */}
       <div className="flex items-center h-7 bg-app-surface border-b border-app-divider px-3 text-xs">
         <span className={`inline-block h-1.5 w-1.5 rounded-full mr-2 ${searchMode ? "bg-status-warn animate-pulse" : "bg-app-muted"}`} />
@@ -214,8 +206,6 @@ function QueueRow(props: {
 
           <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-2xs text-app-dim">
             <span>HR <span className="text-app-text">{s.heartRate || "—"}</span></span>
-            <span>SpO₂ <span className="text-app-text">{s.spo2 || "—"}</span></span>
-            <span>BAT <span className="text-app-text">{s.batteryPct}%</span></span>
             <span className="ml-auto text-app-muted">{timeAgo(s.lastSeen)} ago</span>
           </div>
 

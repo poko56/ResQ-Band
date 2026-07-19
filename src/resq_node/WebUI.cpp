@@ -13,6 +13,7 @@ static uint32_t s_target_id = 0;
 static uint8_t  s_mode = 0; // 0=LoRa, 1=UWB
 static float    s_distance_m = -1.0f;
 static float    s_angle_deg = 0.0f;
+static uint8_t  s_v_hr = 0, s_v_spo2 = 0, s_v_batt = 0, s_v_triage = 0;
 
 #define MAX_BANDS 10
 static SeenBand s_bands[MAX_BANDS];
@@ -30,6 +31,13 @@ void webui_set_target(uint32_t id, uint8_t mode, float dist, float angle) {
   s_mode = mode;
   s_distance_m = dist;
   s_angle_deg = angle;
+}
+
+void webui_set_vitals(uint8_t hr, uint8_t spo2, uint8_t batt, uint8_t triage) {
+  s_v_hr = hr;
+  s_v_spo2 = spo2;
+  s_v_batt = batt;
+  s_v_triage = triage;
 }
 
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
@@ -151,9 +159,15 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       <span class="status-label">Distance:</span>
       <span class="status-val" id="distance">--</span>
     </div>
-    <button class="btn outline" style="margin-top: 8px;" onclick="switchMode()" id="btn-mode">Switch to UWB Mode</button>
+    <button class="btn outline" style="margin-top: 8px;" onclick="switchMode()" id="btn-mode">Switch to BLE Mode</button>
   </div>
-  
+
+  <div class="glass-panel" id="vitals-panel" style="display:none;">
+    <h3 style="margin: 0 0 8px; font-size: 16px; color: var(--text-muted);">Wearer Vitals</h3>
+    <div class="status-row"><span class="status-label">Heart Rate</span><span class="status-val" id="v-hr">--</span></div>
+    <div class="status-row"><span class="status-label">Triage</span><span class="status-val" id="v-triage">--</span></div>
+  </div>
+
   <div class="glass-panel">
     <h3 style="margin: 0 0 8px; font-size: 16px; color: var(--text-muted);">Detected Bands</h3>
     <table>
@@ -194,15 +208,24 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         .then(data => {
           document.getElementById('debug_msg').innerText = data.debug || "";
           currentMode = data.mode;
-          document.getElementById('mode-text').innerText = (data.mode === 0 ? 'LoRa Sweep' : 'UWB Pinpoint');
-          document.getElementById('btn-mode').innerText = (data.mode === 0 ? 'Switch to UWB Mode' : 'Switch to LoRa Mode');
+          document.getElementById('mode-text').innerText = (data.mode === 0 ? 'LoRa Sweep' : 'BLE Pinpoint');
+          document.getElementById('btn-mode').innerText = (data.mode === 0 ? 'Switch to BLE Mode' : 'Switch to LoRa Mode');
           
           if (data.target_id === 0) {
             document.getElementById('target-id').innerText = 'None';
             document.getElementById('distance').innerText = '--';
             document.getElementById('blip').style.display = 'none';
+            document.getElementById('vitals-panel').style.display = 'none';
           } else {
             document.getElementById('target-id').innerText = data.target_id.toString(16).toUpperCase();
+
+            // Wearer vitals panel (from dispatch or LoRa heartbeat)
+            document.getElementById('vitals-panel').style.display = 'block';
+            document.getElementById('v-hr').innerText   = (data.hr > 0 ? data.hr + ' bpm' : '--');
+            const tlab = ['SAFE','WATCH','CRITICAL','DECEASED'][data.triage] || '--';
+            const tcol = ['#10b981','#eab308','#ef4444','#94a3b8'][data.triage] || '#94a3b8';
+            const vt = document.getElementById('v-triage');
+            vt.innerText = tlab; vt.style.color = tcol;
             
             // Find target in bands to get its RSSI
             let targetBand = data.bands.find(b => b.id === data.target_id);
@@ -212,9 +235,17 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             let show_blip = true;
 
             if (data.mode === 0) {
-              let est_dist = Math.pow(10, (-45 - trssi) / 25.0);
-              document.getElementById('distance').innerText = '~' + est_dist.toFixed(1) + ' m';
-              dist_px = Math.min(140, (est_dist / 100.0) * 140.0);
+              // LoRa sweep: only estimate distance when we actually have this
+              // target's RSSI. Without it, the path-loss formula fed -100 dBm
+              // spits out a meaningless ~158 m, so show "No Signal" instead.
+              if (!targetBand) {
+                document.getElementById('distance').innerText = 'No Signal';
+                show_blip = false;
+              } else {
+                let est_dist = Math.pow(10, (-45 - trssi) / 25.0);
+                document.getElementById('distance').innerText = '~' + est_dist.toFixed(1) + ' m';
+                dist_px = Math.min(140, (est_dist / 100.0) * 140.0);
+              }
             } else {
               if (data.distance_m < 0) {
                 document.getElementById('distance').innerText = 'Out of Range';
@@ -249,7 +280,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
               let btnHtml = isLocked 
                 ? '<button class="btn-sm active">Locked</button>'
                 : '<button class="btn-sm" onclick="assignTarget('+b.id+')">Assign</button>';
-              let vitals = '<span style="color:var(--danger)">\u2665</span>' + (b.hr||'--') + ' <span style="color:#0ea5e9">O2</span>' + (b.spo2||'--');
+              let vitals = '<span style="color:var(--danger)">\u2665</span>' + (b.hr||'--');
               return '<tr><td>'+b.id.toString(16).toUpperCase()+'</td><td>'+vitals+'</td><td>'+b.rssi+'</td><td>'+btnHtml+'</td></tr>';
             }).join('');
           }
@@ -274,7 +305,18 @@ void handleApiData() {
   json += "\"target_id\":" + String(s_target_id) + ",";
   json += "\"distance_m\":" + String(s_distance_m) + ",";
   json += "\"angle_deg\":" + String(s_angle_deg) + ",";
-  json += "\"debug\":\"" + g_webui_debug + "\",";
+  json += "\"hr\":" + String(s_v_hr) + ",";
+  json += "\"spo2\":" + String(s_v_spo2) + ",";
+  json += "\"batt\":" + String(s_v_batt) + ",";
+  json += "\"triage\":" + String(s_v_triage) + ",";
+  
+  String extDebug = g_webui_debug + " | T:" + String(s_target_id, HEX);
+  extDebug += " [";
+  for (size_t i = 0; i < s_bands_count; i++) {
+    extDebug += String(s_bands[i].id, HEX) + "(" + String(millis() - s_bands[i].last_seen_ms) + "ms) ";
+  }
+  extDebug += "]";
+  json += "\"debug\":\"" + extDebug + "\",";
   
   json += "\"bands\":[";
   for (size_t i = 0; i < s_bands_count; i++) {
@@ -289,6 +331,7 @@ void handleApiData() {
   }
   json += "]}";
   
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", json);
 }
 
@@ -296,12 +339,21 @@ void handleAssign() {
   if (server.hasArg("id")) {
     webui_wants_target_id = strtoul(server.arg("id").c_str(), NULL, 10);
   }
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", "{\"success\":true}");
 }
 
 void handleSwitchMode() {
   webui_wants_mode_switch = true;
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", "{\"success\":true}");
+}
+
+void handleOptions() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.send(204);
 }
 
 void init_web_ui() {
@@ -314,9 +366,12 @@ void init_web_ui() {
   Serial.println(IP);
   
   server.on("/", handleRoot);
-  server.on("/api/data", handleApiData);
+  server.on("/api/data", HTTP_GET, handleApiData);
+  server.on("/api/data", HTTP_OPTIONS, handleOptions);
   server.on("/api/assign", HTTP_POST, handleAssign);
+  server.on("/api/assign", HTTP_OPTIONS, handleOptions);
   server.on("/api/switch_mode", HTTP_POST, handleSwitchMode);
+  server.on("/api/switch_mode", HTTP_OPTIONS, handleOptions);
   server.begin();
   Serial.println("[WebUI] HTTP server started");
 }

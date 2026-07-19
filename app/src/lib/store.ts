@@ -117,15 +117,21 @@ function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors:
   let sumLat = 0, sumLng = 0, sumWeight = 0;
   let hasValidAnchor = false;
 
+  // dBm floor below which a pin contributes ~nothing to the estimate.
+  const RSSI_FLOOR = -100;
+
   for (const s of activeSightings) {
     const anchor = Object.values(anchors).find(a => a.pinIndex === s.pinIndex);
     if (!anchor || !anchor.position) continue;
 
-    // Estimate distance using Path Loss model (A = -45, n = 2.5)
-    const distance = Math.pow(10, (-45 - s.rssi) / (10 * 2.5));
-    
-    // Weight = 1 / d^2
-    const weight = 1 / Math.pow(distance, 2);
+    // RSSI-weighted centroid. Previously this used inverse-distance (1/d^2)
+    // over a path-loss distance estimate, but because distance is already
+    // exponential in RSSI, squaring it made the nearest pin's weight dwarf
+    // every other pin (~40:1) - so the marker snapped onto the closest pillar.
+    // Weighting on the RSSI margin above the floor (squared) keeps a strong
+    // pin dominant while still visibly pulling the marker *between* pillars.
+    const margin = Math.max(1, s.rssi - RSSI_FLOOR);   // e.g. -45 dBm -> 55
+    const weight = margin * margin;
 
     sumLat += anchor.position.lat * weight;
     sumLng += anchor.position.lng * weight;

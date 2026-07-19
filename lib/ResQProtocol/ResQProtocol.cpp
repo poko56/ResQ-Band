@@ -141,7 +141,11 @@ void fill_assignment(AssignmentPacket& pkt,
                      uint8_t best_pin_index,
                      int16_t best_rssi,
                      TriageLevel triage,
-                     AssignReason reason) {
+                     AssignReason reason,
+                     uint8_t heart_rate,
+                     uint8_t spo2,
+                     uint8_t battery_pct,
+                     int16_t last_g_force_x10) {
   pkt.magic            = MAGIC;
   pkt.packet_type      = PKT_ASSIGNMENT;
   pkt.protocol_version = PROTOCOL_VERSION;
@@ -152,6 +156,10 @@ void fill_assignment(AssignmentPacket& pkt,
   pkt.best_rssi        = best_rssi;
   pkt.triage_level     = triage;
   pkt.reason_code      = reason;
+  pkt.heart_rate       = heart_rate;
+  pkt.spo2             = spo2;
+  pkt.battery_pct      = battery_pct;
+  pkt.last_g_force_x10 = last_g_force_x10;
   pkt.crc16            = compute_packet_crc(pkt);
 }
 bool verify_assignment(const AssignmentPacket& pkt) {
