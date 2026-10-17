@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type {
   Anchor,
@@ -97,7 +98,7 @@ const defaultHub = (): HubStatus => ({
 });
 
 function statusFromPacketType(ptype: string, prev?: BandStatus): BandStatus {
-  if (ptype === "SOS_TAP" || ptype === "SOS_FALL") return "sos";
+  if (ptype === "SOS_TAP" || ptype === "SOS_FALL" || ptype === "SOS_VITALS") return "sos";
   if (prev === "rescued" || prev === "deceased") return prev;
   if (prev === "assigned") return "assigned";
   return "active";
@@ -111,27 +112,24 @@ export function _registerSendCommand(fn: (cmd: object) => void) {
 
 // Helper: Calculate Inverse Distance Weighting Trilateration
 function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors: Record<string, Anchor>): LatLng | undefined {
-  const activeSightings = Object.values(rssiPerPin).filter(p => p.ageMs < 30000); // Only use recent sightings (< 30s)
+  const now = Date.now();
+  const activeSightings = Object.values(rssiPerPin).filter(p => (now - p.timestamp) < 30000); // Only use recent sightings (< 30s)
   if (activeSightings.length === 0) return undefined;
 
   let sumLat = 0, sumLng = 0, sumWeight = 0;
   let hasValidAnchor = false;
 
-  // dBm floor below which a pin contributes ~nothing to the estimate.
-  const RSSI_FLOOR = -100;
-
   for (const s of activeSightings) {
     const anchor = Object.values(anchors).find(a => a.pinIndex === s.pinIndex);
     if (!anchor || !anchor.position) continue;
 
-    // RSSI-weighted centroid. Previously this used inverse-distance (1/d^2)
-    // over a path-loss distance estimate, but because distance is already
-    // exponential in RSSI, squaring it made the nearest pin's weight dwarf
-    // every other pin (~40:1) - so the marker snapped onto the closest pillar.
-    // Weighting on the RSSI margin above the floor (squared) keeps a strong
-    // pin dominant while still visibly pulling the marker *between* pillars.
-    const margin = Math.max(1, s.rssi - RSSI_FLOOR);   // e.g. -45 dBm -> 55
-    const weight = margin * margin;
+    // Estimate distance based on path loss formula: d = 10 ^ ((TxPower - RSSI) / (10 * n))
+    // We use a simplified formula: d = 10 ^ ((-45 - RSSI) / 25)
+    // Using 1/d for weighting gives a physically accurate interpolation that
+    // allows strong signals to dominate (ignoring far pillars) while still
+    // balancing smoothly between nearby pillars.
+    const distance = Math.pow(10, (-45 - s.rssi) / 25.0);
+    const weight = 1.0 / distance;
 
     sumLat += anchor.position.lat * weight;
     sumLng += anchor.position.lng * weight;
@@ -143,7 +141,9 @@ function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors:
   return { lat: sumLat / sumWeight, lng: sumLng / sumWeight };
 }
 
-export const useResQ = create<ResQState>((set, get) => ({
+export const useResQ = create<ResQState>()(
+  persist(
+    (set, get) => ({
   incident: defaultIncident(),
   wristbands: {},
   anchors: {},
@@ -211,7 +211,8 @@ export const useResQ = create<ResQState>((set, get) => ({
     const anchor: Anchor = {
       id,
       pinIndex,
-      name: name ?? `Pin-${pinIndex}`,
+      // Display is 1-based (เสา 1..4); pinIndex stays 0-based internally.
+      name: name ?? `Pin-${pinIndex + 1}`,
       position,
       placedAt: Date.now(),
       online: false,
@@ -219,7 +220,7 @@ export const useResQ = create<ResQState>((set, get) => ({
     };
     set((s) => ({ anchors: { ...s.anchors, [id]: anchor }, placementMode: "none" }));
     get().pushEvent("anchor_placed",
-      `วางเสา ${anchor.name} (slot ${pinIndex}) ที่ ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`,
+      `วางเสา ${anchor.name} (เสา ${pinIndex + 1}) ที่ ${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`,
       { anchorId: id });
     return anchor;
   },
@@ -262,7 +263,7 @@ export const useResQ = create<ResQState>((set, get) => ({
       const anchor: Anchor = {
         id,
         pinIndex: idx,
-        name: `Pin-${idx}`,
+        name: `Pin-${idx + 1}`,   // 1-based display, 0-based idx internally
         online: true, // We just heard from it
         placedAt: Date.now(),
         lastSeen: Date.now(),
@@ -311,12 +312,18 @@ export const useResQ = create<ResQState>((set, get) => ({
       const searchMode = s.searchMode || status === "sos";
       return { sightings: { ...s.sightings, [ev.id]: next }, searchMode };
     });
-    if (ev.ptype === "SOS_TAP" || ev.ptype === "SOS_FALL") {
+    if (ev.ptype === "SOS_TAP" || ev.ptype === "SOS_FALL" || ev.ptype === "SOS_VITALS") {
       const wb = get().wristbands[ev.id];
       const who = wb?.name ?? ev.id;
+      const desc =
+        ev.ptype === "SOS_VITALS"
+          ? "สัญญาณชีพวิกฤต"
+          : ev.ptype === "SOS_FALL"
+          ? "ตรวจพบการล้ม"
+          : "กดเคาะขอความช่วยเหลือ";
       get().pushEvent(
         ev.ptype === "SOS_FALL" ? "fall_received" : "sos_received",
-        `${who}: ${ev.ptype === "SOS_FALL" ? "ตรวจพบการล้ม" : "กดเคาะขอความช่วยเหลือ"} (HR ${ev.hr}, SpO₂ ${ev.spo2})`,
+        `${who}: ${desc} (HR ${ev.hr}, SpO₂ ${ev.spo2})`,
         { wristbandId: ev.id },
       );
     }
@@ -326,27 +333,30 @@ export const useResQ = create<ResQState>((set, get) => ({
     // Update anchor online state
     set((s) => {
       const nextAnchors = { ...s.anchors };
-      const matched = Object.values(s.anchors).find((a) => a.pinIndex === ev.pin);
-      if (matched) {
-        nextAnchors[matched.id] = { ...matched, online: true, lastSeen: Date.now(),
-          id: matched.id === ev.pin_id ? matched.id : matched.id /* keep slot id */ };
-      } else {
-        const id = ev.pin_id || nanoid(6).toUpperCase();
-        nextAnchors[id] = {
-          id,
-          pinIndex: ev.pin,
-          name: `Pin-${ev.pin}`,
-          placedAt: Date.now(),
-          online: true,
-          lastSeen: Date.now(),
-        };
-      }
+      // Identify a pin by its DEVICE id (pin_id), never by its slot index.
+      // Matching on pinIndex let two different pins collide on the same slot
+      // (both showed "Pin-1"). The firmware's ev.pin is authoritative for the
+      // slot, so adopt it every time and keep the anchor keyed by its device id.
+      const id = ev.pin_id || `idx${ev.pin}`;
+      const existing = s.anchors[id];
+      // Preserve a user-given custom name; refresh a default "Pin-N" label so a
+      // stale/1-off name self-corrects from the real firmware index.
+      const isDefaultName = !existing || /^Pin-\d+$/.test(existing.name);
+      nextAnchors[id] = {
+        id,
+        pinIndex: ev.pin,
+        name: isDefaultName ? `Pin-${ev.pin + 1}` : existing.name,
+        position: existing?.position,
+        placedAt: existing?.placedAt ?? Date.now(),
+        online: true,
+        lastSeen: Date.now(),
+      };
       // Update RSSI per pin on each band's sighting
       const nextSightings = { ...s.sightings };
       for (const sg of ev.sightings) {
         const bandId = sg.band.toUpperCase();
         const prev = nextSightings[bandId];
-        const rssiEntry: PinRssi = { pinIndex: ev.pin, rssi: sg.rssi, snr: sg.snr, ageMs: sg.age_ms };
+        const rssiEntry: PinRssi = { pinIndex: ev.pin, rssi: sg.rssi, snr: sg.snr, ageMs: sg.age_ms, timestamp: Date.now() - sg.age_ms };
         const rssiPerPin = { ...(prev?.rssiPerPin ?? {}), [ev.pin]: rssiEntry };
         // Infer position: IDW Trilateration based on all active pins
         let position = calculateWeightedPosition(rssiPerPin, s.anchors) ?? prev?.position;
@@ -512,4 +522,11 @@ export const useResQ = create<ResQState>((set, get) => ({
       return changed ? { anchors: nextAnchors, sightings: nextSightings } : s;
     });
   },
+}), {
+  name: "resq-storage",
+  partialize: (state) => ({
+    incident: state.incident,
+    wristbands: state.wristbands,
+    anchors: state.anchors
+  })
 }));

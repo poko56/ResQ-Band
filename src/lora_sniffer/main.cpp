@@ -49,7 +49,7 @@ void parse_resq_packet(const uint8_t* data, size_t len) {
     if (len >= sizeof(ResQ::PinSightingPacket)) {
       ResQ::PinSightingPacket pkt;
       memcpy(&pkt, data, sizeof(pkt));
-      Serial.printf("  Pin ID: %08X, Pin Index: %d, Sightings: %d\n", pkt.pin_device_id, pkt.pin_index, pkt.num_sightings);
+      Serial.printf("  Pin ID: %08X, Pillar: %d (pin_index %d), Sightings: %d\n", pkt.pin_device_id, pkt.pin_index + 1, pkt.pin_index, pkt.num_sightings);
       for (int i = 0; i < pkt.num_sightings; ++i) {
         Serial.printf("    - Band ID: %08X, RSSI: %d, SNR: %d\n", pkt.sightings[i].band_device_id, pkt.sightings[i].rssi, pkt.sightings[i].snr);
       }

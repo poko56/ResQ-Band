@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { TagInput } from "@/components/ui/TagInput";
 import { useResQ } from "@/lib/store";
 import { compressImageFile, approxKb } from "@/lib/photo";
+import { buildRosterPayload } from "@/lib/roster";
 import type { BandRole } from "@/lib/types";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
@@ -82,6 +83,21 @@ export default function RegisterPage() {
   }
 
   const list = Object.values(wristbands).sort((a, b) => b.registeredAt - a.registeredAt);
+
+  // Export the roster in the exact shape the handheld expects (keyed by band
+  // device id, photos thumbnailed) - shared with the "Sync to Locator" flow.
+  async function exportRosterFile() {
+    const out = await buildRosterPayload(wristbands);
+    const json = JSON.stringify(out);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "roster.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    alert(`Export สำเร็จ: ${list.length} คน, ${Math.round(json.length / 1024)} KB\n\nนำไฟล์ roster.json ไปอัปโหลดที่ 192.168.4.1 (WiFi: ResQ-Locator)`);
+  }
 
   return (
     <div className="grid flex-1 grid-cols-[1fr_380px] overflow-hidden divide-x divide-app-divider">
@@ -173,7 +189,17 @@ export default function RegisterPage() {
         <aside className="overflow-y-auto bg-app-panel">
           <div className="panel-header justify-between">
             <span>Enrolled</span>
-            <span className="font-mono text-app-dim normal-case">{list.length}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exportRosterFile}
+                disabled={list.length === 0}
+                title="ดาวน์โหลด roster.json เพื่อไปอัปโหลดใส่เครื่องกู้ภัย (ResQ-Locator → 192.168.4.1)"
+                className="btn btn-sm normal-case disabled:opacity-40"
+              >
+                Export ↓
+              </button>
+              <span className="font-mono text-app-dim normal-case">{list.length}</span>
+            </div>
           </div>
           {list.length === 0 ? (
             <div className="grid place-items-center p-6 text-2xs text-app-muted">no wristbands yet</div>

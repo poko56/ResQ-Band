@@ -60,10 +60,11 @@ bool verify_sos_packet(const SOSPacket& pkt) {
   if (pkt.magic != MAGIC) return false;
   if (pkt.protocol_version != PROTOCOL_VERSION) return false;
   if (pkt.hop_count > MAX_HOP_COUNT) return false;
-  // packet_type is one of HEARTBEAT / SOS_TAP / SOS_FALL - accept any of them
+  // packet_type is one of HEARTBEAT / SOS_TAP / SOS_FALL / SOS_VITALS - accept any of them
   if (pkt.packet_type != PKT_HEARTBEAT &&
       pkt.packet_type != PKT_SOS_TAP   &&
-      pkt.packet_type != PKT_SOS_FALL) return false;
+      pkt.packet_type != PKT_SOS_FALL  &&
+      pkt.packet_type != PKT_SOS_VITALS) return false;
   return compute_packet_crc(pkt) == pkt.crc16;
 }
 
@@ -318,8 +319,9 @@ const char* packet_type_label(PacketType t) {
     case PKT_PIN_SET_SLOT_CMD: return "PIN_SET_SLOT";
     case PKT_PIN_JOIN_REQ:     return "PIN_JOIN_REQ";
     case PKT_SOS_TAP:          return "SOS_TAP";
-    case PKT_SOS_FALL:     return "SOS_FALL";
-    default:               return "UNKNOWN";
+    case PKT_SOS_FALL:         return "SOS_FALL";
+    case PKT_SOS_VITALS:       return "SOS_VITALS";
+    default:                   return "UNKNOWN";
   }
 }
 

@@ -186,7 +186,10 @@ static void on_lora_rx(int packet_size) {
     if (ResQ::verify_pin_set_slot_cmd(pkt) && pkt.pin_device_id == g_device_id) {
       g_pin_index = pkt.slot_index;
       g_prefs.putUChar("pin_idx", g_pin_index);
-      Serial.printf("[CMD] assigned to slot %u\n", g_pin_index);
+      // Human-facing count is 1-based (Pillar 1..4); g_pin_index stays 0-based
+      // internally for the TDMA slot math and array indexing.
+      Serial.printf("[CMD] assigned to Pillar %u (pin_index %u)\n",
+                    (unsigned)(g_pin_index + 1), (unsigned)g_pin_index);
       
       // Flash LED to acknowledge
       for (int i=0; i<3; i++) {
@@ -302,8 +305,11 @@ void setup() {
 
   Serial.println();
   Serial.printf("== %s fw=%s ==\n", BOARD_NAME, FW_VERSION);
-  Serial.printf("device_id=%08X  pin_index=%u  slot=%u\n",
-                g_device_id, (unsigned)g_pin_index,
+  // Pillar is counted 1..4 for humans; pin_index is the 0-based internal index
+  // used for the TDMA slot and array positions (255 = not yet assigned).
+  const unsigned pillar_no = (g_pin_index == 255) ? 0 : (unsigned)(g_pin_index + 1);
+  Serial.printf("Pillar=%u  device_id=%08X  pin_index=%u  slot=%u\n",
+                pillar_no, g_device_id, (unsigned)g_pin_index,
                 (unsigned)(g_pin_index == 255 ? 0 : TDMA_SLOT_PIN_BASE + g_pin_index));
 
   g_lora_ready = connect_lora();

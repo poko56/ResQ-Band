@@ -1,0 +1,345 @@
+<!doctype html><html><head><!-- frame-runtime --><base href="/_f/1785516786-ac0e/"><script>window.__FRAME_PREAMBLE={"capabilities":{"downloads":"downloads.BABDwU1K.js","mcp":"mcp.hoz5jxDa.js","permissions":"permissions.ByA9Fd8x.js","self":"self.D3u1zjZe.js","user":"user.Cp1-RnjB.js"},"transforms":"_transforms.DYk1Ltlh.js","comments":"_comments.DiwQajF_.js","translate":"_translate.C5leZL2A.js"}</script><script>(function(){"use strict";const Ee="modulepreload",we=function(e){return"/"+e},Se={},ee=function(t,n,l){let i=Promise.resolve();function s(f){const c=new Event("vite:preloadError",{cancelable:!0});if(c.payload=f,window.dispatchEvent(c),!c.defaultPrevented)throw f}return i.then(f=>{for(const c of f||[])c.status==="rejected"&&s(c.reason);return t().catch(s)})},te=["light","dark","system"];function ne(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_init;return t!==null&&typeof t=="object"}function W(e){return e!==null&&typeof e=="object"&&e.__frame_size_poke===!0}function re(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_theme;if(t===null||typeof t!="object")return!1;const n=t.theme;return typeof n=="string"&&te.includes(n)}function se(e){try{typeof reportError=="function"?reportError(e):setTimeout(()=>{throw e},0)}catch{}}const oe=Object.freeze(Object.assign(Object.create(null),{user:Object.freeze(Object.assign(Object.create(null),{id:null,isOwner:!1,canEdit:!1,name:null,avatarUrl:null,email:null}))}));function Y(e){if(window===top||e.type==="auxclick"&&e.button!==1)return;const t=e.composedPath?e.composedPath():[e.target];let n=null;for(let f=0;f<t.length;f++){const c=t[f];if(c&&c.matches&&c.matches("a[href],area[href]")){n=c;break}}if(!n&&e.target&&e.target.closest&&(n=e.target.closest("a[href],area[href]")),!n)return;const l=n.getAttribute("href");if(!l)return;let i,s;try{i=new URL(l,document.baseURI),s=new URL(document.baseURI).origin}catch{return}(i.protocol==="http:"||i.protocol==="https:")&&i.origin!==s&&(e.preventDefault(),parent.postMessage({__frame_nav:!0,url:i.href},"*"))}const K={};function D(e){if(window===top)return;const t=Date.now();t-(K[e]||0)<500||(K[e]=t,parent.postMessage({__frame_engaged:!0,kind:e},"*"))}const ie=2e3,x=["wheel","touchstart","touchmove","keydown","pointerdown"];let J=0;function ae(e){e.isTrusted&&(J=Date.now())}function ce(){addEventListener("click",Y,!0),addEventListener("auxclick",Y,!0)}function le(){for(let e=0;e<x.length;e++)addEventListener(x[e],ae,{capture:!0,passive:!0});addEventListener("scroll",e=>{e.isTrusted&&Date.now()-J<ie&&D("scroll")},{capture:!0,passive:!0}),addEventListener("pointermove",e=>{e.isTrusted&&D("pointer")},{capture:!0,passive:!0}),addEventListener("click",e=>{e.isTrusted&&D("click")},{capture:!0,passive:!0})}const I="__frame_scroll",ue=150,fe=310,de=160,me=3e4;function pe(){let e=0,t=!1,n=!1,l=!1,i=0;const s=a=>{try{sessionStorage.setItem(I,JSON.stringify({y:a}))}catch{}},f=()=>{if(t){t=!1;return}n=!0,clearTimeout(e),e=setTimeout(()=>s(scrollY),ue)};try{addEventListener("scroll",f,{passive:!0}),addEventListener("pagehide",()=>{clearTimeout(e),s(scrollY)})}catch{}const c=()=>{let a;try{a=sessionStorage.getItem(I)}catch{return null}if(a===null)return null;let _;try{_=JSON.parse(a)}catch{_=null}const m=_?.y;if(!(typeof m=="number"&&Number.isFinite(m)&&m>=0)){try{sessionStorage.removeItem(I)}catch{}return null}return m};let g=!1;const p=a=>{try{const _=scrollY;scrollTo({top:a,left:0,behavior:"instant"}),i=a,l=!0,s(a);const m=scrollY;m!==_&&(t=!0),m!==a&&!g&&(g=!0,addEventListener("load",()=>{try{if(scrollY===m){const y=c();p(y!==null?y:i)}}catch{}},{once:!0}))}catch{}},o=()=>{try{return!!location.hash}catch{return!0}};let u=!1;const d=()=>{try{if(u||innerWidth>fe||innerHeight>de)return;u=!0;const a=Date.now(),_=()=>{try{removeEventListener("resize",_)}catch{}if(Date.now()-a>me||n||o())return;const m=c();p(m!==null?m:i)};addEventListener("resize",_)}catch{}};let h=!1,b=!1;return{restore(){if(h||(h=!0,o()))return;const a=c();a!==null&&(p(a),d())},promoted(){if(b||(b=!0,o()))return;const a=c();a!==null?(p(a),d()):l&&p(i)}}}function he(e,t,n){const l=[...t.values()].filter(i=>i.targets.some(s=>s.startsWith(e+".")));return{wrap(i,s){const f=`${e}.${i}`,c=l.filter(g=>g.targets.includes(f));return c.length===0?(...g)=>{try{return s(...g)}catch(p){return Promise.reject(p)}}:(...g)=>{let p=g;for(const u of c){const d=u.module.parameters;if(d)try{p=d(p)}catch{return Promise.reject({code:"transform_error",id:u.id,scope:e,message:"parameters transform failed"})}}let o;try{o=s(...p)}catch(u){o=Promise.reject(u)}return o.then(u=>{for(let d=c.length-1;d>=0;d--){const h=c[d],b=h.module.returns;if(b)try{u=b(u)}catch{return n({id:h.id,scope:e,leg:"returns"}),u}}return u},u=>{for(let d=c.length-1;d>=0;d--){const h=c[d],b=h.module.throws;if(b)try{u=b(u)}catch{return n({id:h.id,scope:e,leg:"throws"}),Promise.reject(u)}}return Promise.reject(u)})}}}}function ge(e,t,n,l=()=>{}){const i=new Set(e.changes??[]),s=new Map;for(const f of i){const c=t[f];c&&s.set(f,c)}return{contract:e.contract,changes:i,flags:new Set(e.flags??[]),capabilities:e.capabilities??{},capBudgets:e.capBudgets??{},transforms:s,shellOrigin:n.shellOrigin,mount:n.mount,pipe:f=>he(f,s,l)}}(function(){const e=Object.defineProperty,t=globalThis,n=["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate","RTCSessionDescription","RTCRtpSender","RTCRtpReceiver"];let l=0;for(let i=0;i<n.length;i++){const s=n[i];try{e(t,s,{value:void 0,writable:!1,configurable:!1})}catch{try{delete t[s]}catch{}try{e(t,s,{value:void 0,writable:!1,configurable:!0})}catch{}}typeof t[s]=="function"&&l++}if(l&&window!==top)try{parent.postMessage({__frame_rtc_lockdown_failed:l},"*")}catch{}})();const _e=1e4,ye=Object.freeze([...window.__FRAME_PREAMBLE?.origins??["https://claude.ai","https://preview.claude.ai"]]);function G(e){for(const t of ye)if(t.endsWith(":*"))try{const n=new URL(e);if(`${n.protocol}//${n.hostname}:*`===t)return!0}catch{}else if(e===t)return!0;return!1}const R=Object.freeze({...window.__FRAME_PREAMBLE?.capabilities}),U=window.__FRAME_PREAMBLE?.transforms,z=window.__FRAME_PREAMBLE?.comments,$=window.__FRAME_PREAMBLE?.translate,T=/^[\w.-]+\.js$/,be=/^[a-z][a-z0-9_-]{0,63}$/;let V=null,j=null;function q(e,t,n){try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!1,enumerable:!0})}catch{try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!0,enumerable:!0})}catch{}}}let B=!1;function X(e){const t=document.documentElement;e==="light"||e==="dark"?(t.dataset.theme=e,t.style.colorScheme=e,B=!0):B&&(delete t.dataset.theme,t.style.colorScheme="",B=!1)}const A=Object.assign(Object.create(null),{mcp:Object.assign(Object.create(null),{watchTool:{handlerArg:3}})}),M=new Map;function Q(e,t){const n=M.get(e);if(!n)return;const l=Object.assign(Object.create(null),t);Object.assign(n.impl,l),n.impl.__settled=()=>Promise.reject({code:"capability_removed",message:`${e}: method not in this runtime`});const i=n.queue;n.queue=[];for(const s of i){const f=l[s.method];if(f)if(A[e]?.[s.method])try{s.resolve(f(...s.args))}catch{k(s,A[e][s.method].handlerArg,{code:"transform_error",message:`${e}.${s.method} rejected its arguments`})}else f(...s.args).then(s.resolve,s.reject);else{const c={code:"capability_removed",message:`${e}.${s.method} is not in this runtime`},g=A[e]?.[s.method];if(g){k(s,g.handlerArg,c);continue}s.reject(c)}}}function ve(e,t){const n=M.get(e);if(!n)return;n.impl.__settled=()=>Promise.reject(t);const l=n.queue;n.queue=[];for(const i of l){const s=A[e]?.[i.method];if(s){k(i,s.handlerArg,t);continue}i.reject(t)}}function N(e,t){const n=oe[e];if(!n){ve(e,t);return}Q(e,Object.fromEntries(Object.entries(n).map(([l,i])=>[l,()=>Promise.resolve(i)])))}function k(e,t,n){if(e.syncState?.dead)return;const l=e.args[t];typeof l=="function"&&queueMicrotask(()=>{if(!e.syncState?.dead)try{l({type:"error",error:n})}catch(i){se(i)}})}const F=Object.getOwnPropertyDescriptor(window,"claude");if(window!==top&&!(F&&F.writable===!1)){ce(),le();let e=null;try{e=pe()}catch{}const t=F?.value??{};q(window,"claude",t);const n=o=>{const u={impl:Object.create(null),queue:[]};M.set(o,u);const d=u.impl,h=new Proxy(d,{get:(b,a)=>{if(typeof a!="string"||a==="then"||a==="toJSON"||a==="valueOf")return;if(a==="toString")return Object.prototype.toString;const _=A[o]?.[a];return _?(...m)=>{if(typeof m[_.handlerArg]!="function")throw new TypeError(`${o}.${a} requires a handler function`);const y=d[a];if(y)return y(...m);if(d.__settled){const v={dead:!1},P={args:[...m],syncState:v};return d.__settled().catch(C=>k(P,_.handlerArg,C)),()=>{v.dead=!0}}let E=null;const S={dead:!1};return u.queue.push({method:a,args:m,resolve:v=>{E=typeof v=="function"?v:null,S.dead&&E?.()},reject:()=>{},syncState:S}),()=>{S.dead=!0,E?.()}}:(...m)=>{const y=d[a]??d.__settled;return y?y(...m):new Promise((E,S)=>{u.queue.push({method:a,args:m,resolve:E,reject:S})})}},set:()=>!1});q(t,o,h)};for(const o of Object.keys(R)){if(t[o]!==void 0){q(t,o,t[o]);continue}n(o)}let l=null,i=null,s=0;const f=o=>{o.source!==parent||!G(o.origin)||ne(o.data)&&(l=o.data.__frame_init,j=o.origin,removeEventListener("message",f),clearTimeout(s),i?.())};addEventListener("message",f),parent.postMessage({__frame_connect:!0},"*");const c=new Promise(o=>{i=o,s=setTimeout(()=>{removeEventListener("message",f),o()},_e)}),g=document.readyState==="loading"?new Promise(o=>document.addEventListener("DOMContentLoaded",()=>o(),{once:!0})):Promise.resolve();g.then(()=>{try{e?.restore()}catch{}});const p=o=>{if(!(o.source!==parent||!G(o.origin))&&W(o.data)){removeEventListener("message",p);try{e?.promoted()}catch{}}};addEventListener("message",p),c.then(async()=>{if(!l||!j){for(const r of M.keys())N(r,{code:"not_granted",message:"frame initialization did not arrive - capability unavailable"});return}X(l.theme);const o=j;let u=!1,d=!1;addEventListener("message",r=>{if(r.source!==parent||r.origin!==o)return;re(r.data)&&X(r.data.__frame_theme.theme);const w=r.data?.__fc_mode;w&&typeof w=="object"&&!u&&z&&T.test(z)&&(u=!0,h(z).then(H=>H.install?.(o,w.on===!0)).catch(()=>{}));const O=r.data?.__ft_cmd;O&&typeof O=="object"&&!d&&$&&T.test($)&&(d=!0,h($).then(H=>H.install?.(o,O)).catch(()=>{}))});const h=r=>ee(()=>import("/_runtime/"+r),void 0),b=Object.keys(l.capabilities??{});for(const r of b)Object.hasOwn(R,r)||be.test(r)&&t[r]===void 0&&(n(r),N(r,{code:"capability_disabled",message:"capability not in this runtime generation"}));const a=b.filter(r=>Object.hasOwn(R,r)).map(r=>[r,R[r]]).filter(r=>typeof r[1]=="string"&&T.test(r[1])),[_,...m]=await Promise.allSettled([U&&T.test(U)?h(U):Promise.resolve({}),...a.map(([,r])=>h(r))]),y=j;V=ge(l,_.status==="fulfilled"&&_.value?.TRANSFORMS||{},{shellOrigin:y,mount:Q},r=>parent.postMessage({__frame_cap_telemetry:r},y));const E=r=>parent.postMessage({__frame_cap_telemetry:{kind:"cap-load-error",cap:r}},y),S=V;m.forEach((r,w)=>{const O=a[w][0];if(r.status!=="fulfilled"){E(O);return}try{r.value?.install?.(S)}catch{E(O)}});for(const[r,w]of M)if(!(w.queue.length===0&&Object.keys(w.impl).length>0)){if(b.includes(r)){N(r,{code:"capability_disabled",message:"capability not available in this session"});continue}N(r,{code:"not_granted",message:"capability not available in this session"})}await g,parent.postMessage({__frame_ready:!0},j);let v=-1,P=0;const C=()=>{P=0;const r=Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0);r!==v&&(v=r,parent.postMessage({__frame_size:!0,h:r},y))},L=()=>{P||(P=setTimeout(C,200))},Z=new ResizeObserver(L);Z.observe(document.documentElement),document.body&&Z.observe(document.body),document.addEventListener("load",L,!0),document.fonts?.ready.then(L,()=>{}),addEventListener("beforeprint",()=>{v=-1,C()}),L(),addEventListener("message",r=>{if(!(r.source!==parent||r.origin!==y)&&W(r.data)){try{e?.promoted()}catch{}v=-1,L()}})})}})();</script><!-- /frame-runtime --><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>ResQ-Band — คู่มือติวและแนวข้อสอบ (ม.ปลาย)</title>
+<style>
+  :root {
+    --ground:#f5f6f8; --panel:#fff; --panel-2:#eef1f4; --border:#dfe3e8; --border-strong:#c8ced6;
+    --ink:#1a2029; --ink-2:#454f5c; --ink-3:#79828e;
+    --accent:#1f6feb; --accent-soft:#e7f0fe;         /* study blue */
+    --rescue:#e35528;
+    --ok:#0f9d63; --ok-soft:#e6f6ee;
+    --warn:#c07f00; --warn-soft:#fbf1dc;
+    --shadow:0 1px 2px rgba(20,30,45,.05),0 8px 22px rgba(20,30,45,.05);
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --ground:#0e1217; --panel:#161b22; --panel-2:#1c222b; --border:#262d37; --border-strong:#333c48;
+    --ink:#e6edf3; --ink-2:#aab4c0; --ink-3:#727d8a;
+    --accent:#589bff; --accent-soft:#132132; --rescue:#ff7043;
+    --ok:#2ec888; --ok-soft:#0f2a1e; --warn:#e6b23a; --warn-soft:#2a2313;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
+  }}
+  :root[data-theme="light"]{--ground:#f5f6f8;--panel:#fff;--panel-2:#eef1f4;--border:#dfe3e8;--border-strong:#c8ced6;--ink:#1a2029;--ink-2:#454f5c;--ink-3:#79828e;--accent:#1f6feb;--accent-soft:#e7f0fe;--rescue:#e35528;--ok:#0f9d63;--ok-soft:#e6f6ee;--warn:#c07f00;--warn-soft:#fbf1dc;--shadow:0 1px 2px rgba(20,30,45,.05),0 8px 22px rgba(20,30,45,.05);}
+  :root[data-theme="dark"]{--ground:#0e1217;--panel:#161b22;--panel-2:#1c222b;--border:#262d37;--border-strong:#333c48;--ink:#e6edf3;--ink-2:#aab4c0;--ink-3:#727d8a;--accent:#589bff;--accent-soft:#132132;--rescue:#ff7043;--ok:#2ec888;--ok-soft:#0f2a1e;--warn:#e6b23a;--warn-soft:#2a2313;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);line-height:1.72;
+    font-family:system-ui,-apple-system,"Segoe UI","Noto Sans Thai","Sarabun",sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:880px;margin:0 auto;padding:40px 22px 90px;}
+
+  .mast{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:26px 28px;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+  .mast::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent);}
+  .kicker{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:700;}
+  .mast h1{font-size:clamp(26px,4vw,38px);line-height:1.1;margin:6px 0 8px;letter-spacing:-.02em;text-wrap:balance;}
+  .mast p{color:var(--ink-2);margin:0;max-width:62ch;}
+
+  h2.sec{font-size:22px;margin:44px 0 6px;letter-spacing:-.01em;scroll-margin-top:16px;}
+  .sec-tag{display:inline-block;font-family:ui-monospace,monospace;font-size:12px;font-weight:700;color:#fff;background:var(--accent);border-radius:6px;padding:2px 9px;margin-bottom:6px;}
+  h3{font-size:16.5px;margin:22px 0 8px;}
+  p{color:var(--ink-2);}
+  .lead-in{color:var(--ink-2);border-left:3px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:10px 0 4px;}
+
+  .kt{color:var(--ink);font-weight:700;border-bottom:2px solid var(--accent);}
+  ul,ol{color:var(--ink-2);padding-left:22px;}
+  li{margin:3px 0;}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--panel-2);border:1px solid var(--border);padding:1px 6px;border-radius:5px;color:var(--ink);}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;margin:14px 0;}
+  .tbl-scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px;min-width:520px;}
+  th{text-align:left;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600;padding:11px 15px;border-bottom:1px solid var(--border-strong);background:var(--panel-2);}
+  td{padding:11px 15px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--ink-2);}
+  tr:last-child td{border-bottom:none}
+  td b{color:var(--ink)}
+
+  /* exam-focus callout */
+  .focus{background:var(--warn-soft);border:1px solid var(--warn);border-radius:11px;padding:14px 16px;margin:16px 0;}
+  .focus .h{font-weight:800;color:var(--warn);font-size:13px;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .focus ul{margin:4px 0 0;color:var(--ink-2)}
+
+  /* question block */
+  details.q{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:0;margin:10px 0;box-shadow:var(--shadow);overflow:hidden;}
+  details.q>summary{cursor:pointer;list-style:none;padding:13px 16px;font-weight:600;color:var(--ink);display:flex;gap:10px;align-items:flex-start;}
+  details.q>summary::-webkit-details-marker{display:none}
+  details.q>summary::before{content:"Q";font-family:ui-monospace,monospace;font-weight:800;color:#fff;background:var(--rescue);border-radius:6px;padding:1px 8px;font-size:12px;flex:none;margin-top:1px;}
+  details.q[open]>summary{border-bottom:1px solid var(--border);background:var(--panel-2);}
+  .ans{padding:12px 16px 15px;font-size:14.5px;color:var(--ink-2);}
+  .ans b{color:var(--ok)}
+  .qtype{font-family:ui-monospace,monospace;font-size:11px;color:var(--ink-3);margin-left:auto;flex:none;text-transform:uppercase;letter-spacing:.05em;}
+
+  .toc{columns:2;column-gap:26px;font-size:14.5px;margin:6px 0;}
+  .toc a{display:block;color:var(--ink-2);text-decoration:none;padding:4px 0;border-bottom:1px dashed var(--border);}
+  .toc a:hover{color:var(--accent)}
+  .toc a b{color:var(--accent);font-family:ui-monospace,monospace;margin-right:8px;}
+  @media(max-width:620px){.toc{columns:1}}
+
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--border);color:var(--ink-3);font-size:12.5px;font-family:ui-monospace,monospace;}
+  a{color:var(--accent)}
+</style>
+
+<div class="wrap">
+
+  <div class="mast">
+    <div class="kicker">คู่มือติว · แนวข้อสอบเชิงทฤษฎี · ระดับ ม.ปลาย</div>
+    <h1>ระบบ ResQ-Band ทำงานอย่างไร</h1>
+    <p>สรุปหลักการทำงานทั้งหมดของระบบติดตามผู้ประสบภัยใต้ซากอาคาร แบ่งเป็น 10 หน่วยการเรียน แต่ละหน่วยมีเนื้อหาละเอียด จุดที่มักออกสอบ และตัวอย่างข้อสอบพร้อมเฉลย (กดที่คำถามเพื่อดูเฉลย)</p>
+  </div>
+
+  <h2 class="sec" style="margin-top:34px">สารบัญหน่วยการเรียน</h2>
+  <div class="toc">
+    <a href="#u1"><b>1</b>ภาพรวมระบบและปัญหาที่แก้</a>
+    <a href="#u2"><b>2</b>คลื่นวิทยุและ LoRa</a>
+    <a href="#u3"><b>3</b>การแบ่งเวลา TDMA</a>
+    <a href="#u4"><b>4</b>อุปกรณ์ 4 ชนิดและบทบาท</a>
+    <a href="#u5"><b>5</b>ไมโครคอนโทรลเลอร์ ESP32</a>
+    <a href="#u6"><b>6</b>เซนเซอร์วัดชีพจร MAX30102</a>
+    <a href="#u7"><b>7</b>โปรโตคอลและการตรวจสอบข้อผิดพลาด</a>
+    <a href="#u8"><b>8</b>การคัดแยกผู้ป่วย (Triage)</a>
+    <a href="#u9"><b>9</b>การระบุตำแหน่งจาก RSSI</a>
+    <a href="#u10"><b>10</b>การไหลของข้อมูลและซอฟต์แวร์</a>
+  </div>
+
+  <!-- แผนผังข้อสอบ -->
+  <h2 class="sec">น้ำหนักข้อสอบ (แนะนำ)</h2>
+  <div class="card tbl-scroll">
+    <table>
+      <thead><tr><th>หน่วย</th><th>ระดับความสำคัญ</th><th>รูปแบบข้อสอบที่เหมาะ</th></tr></thead>
+      <tbody>
+        <tr><td>1 · ภาพรวม/ปัญหา</td><td>สูง</td><td>อธิบายเหตุผล · จับคู่</td></tr>
+        <tr><td>2 · LoRa/คลื่นวิทยุ</td><td>สูงมาก</td><td>ปรนัย · อธิบายเปรียบเทียบ</td></tr>
+        <tr><td>3 · TDMA</td><td>สูงมาก</td><td>อธิบายหลักการ · คำนวณช่องเวลา</td></tr>
+        <tr><td>4 · อุปกรณ์ 4 ชนิด</td><td>สูง</td><td>จับคู่บทบาท · เติมคำ</td></tr>
+        <tr><td>5 · ESP32/การเชื่อมต่อ</td><td>กลาง</td><td>ปรนัย (I2C/SPI/USB)</td></tr>
+        <tr><td>6 · เซนเซอร์ชีพจร</td><td>กลาง</td><td>อธิบายหลักการ PPG</td></tr>
+        <tr><td>7 · โปรโตคอล/CRC</td><td>กลาง</td><td>อธิบาย · เหตุผลใช้ CRC</td></tr>
+        <tr><td>8 · Triage</td><td>สูง</td><td>วิเคราะห์คะแนน · จัดลำดับ</td></tr>
+        <tr><td>9 · RSSI/ตำแหน่ง</td><td>สูง</td><td>วิเคราะห์ · เหตุผล</td></tr>
+        <tr><td>10 · การไหลข้อมูล</td><td>สูง</td><td>เรียงลำดับ · เขียนผัง</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ===================== หน่วย 1 ===================== -->
+  <h2 class="sec" id="u1"><span class="sec-tag">หน่วย 1</span><br>ภาพรวมระบบและปัญหาที่แก้</h2>
+  <div class="lead-in">ระบบนี้ถูกสร้างเพื่อ <b>ค้นหาและช่วยผู้รอดชีวิตที่ติดอยู่ใต้ซากอาคารถล่ม</b> ให้เร็วขึ้น</div>
+  <h3>เนื้อหา</h3>
+  <p><span class="kt">USAR</span> (Urban Search and Rescue) คือภารกิจค้นหาและกู้ภัยในเขตเมือง เช่น ตึกถล่ม แผ่นดินไหว ปัญหาสำคัญคือ <b>ผู้รอดชีวิตใต้ซากมองไม่เห็นและหาตำแหน่งยาก</b> ขณะที่เวลามีจำกัด — โอกาสรอดจะลดลงอย่างรวดเร็วหลังผ่านไปหลายชั่วโมง (มักอ้างถึง "72 ชั่วโมงทอง")</p>
+  <p>อุปกรณ์ทั่วไปใช้ไม่ได้ในสถานการณ์นี้: <span class="kt">GPS</span> ใช้ใต้ซาก/ในอาคารไม่ได้เพราะสัญญาณดาวเทียมทะลุไม่ถึง และเครือข่ายมือถือ/อินเทอร์เน็ตอาจล่มเมื่อเสาสัญญาณเสียหาย ระบบ ResQ-Band จึงออกแบบให้ <b>ทำงานได้ด้วยตัวเอง ไม่พึ่งโครงสร้างพื้นฐานภายนอก</b> โดยใช้กำไลข้อมือส่งสัญญาณวิทยุระยะไกลของตัวเอง</p>
+  <p>ภาพรวมมี 4 ส่วน: <b>กำไล</b> (ผู้ประสบภัยสวม) ส่งสัญญาณ → <b>เสารับสัญญาณ</b> รอบพื้นที่ช่วยระบุตำแหน่ง → <b>ศูนย์ควบคุม</b> ประมวลผลและจัดลำดับ → <b>เครื่องพกพา</b> ให้เจ้าหน้าที่นำทางเข้าหา</p>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>ทำไมจึงใช้วิทยุของตัวเองแทน GPS หรือมือถือ</li>
+    <li>ความหมายของ USAR และ "ช่วงเวลาทอง"</li>
+    <li>4 ส่วนของระบบและลำดับการทำงานคร่าว ๆ</li>
+  </ul></div>
+  <details class="q"><summary>เพราะเหตุใดระบบจึงไม่ใช้ GPS ในการระบุตำแหน่งผู้ประสบภัยใต้ซาก?<span class="qtype">อัตนัย</span></summary>
+    <div class="ans"><b>แนวคำตอบ:</b> เพราะสัญญาณ GPS จากดาวเทียมทะลุผ่านคอนกรีตและซากอาคารเข้าไปใต้ดินไม่ได้ ทำให้เครื่องรับ GPS ใต้ซากไม่สามารถระบุตำแหน่งได้ ระบบจึงหันมาใช้ความแรงสัญญาณวิทยุจากเสาหลายต้นประเมินตำแหน่งแทน</div></details>
+  <details class="q"><summary>ระบบ ResQ-Band ประกอบด้วยอุปกรณ์กี่กลุ่ม อะไรบ้าง<span class="qtype">เติมคำ</span></summary>
+    <div class="ans"><b>เฉลย:</b> 4 กลุ่ม — (1) กำไลข้อมือ Band-Node (2) เสาสัญญาณ ResQ-Pin (3) เครื่องพกพากู้ภัย ResQ-Node (4) ศูนย์ควบคุม MainNode</div></details>
+
+  <!-- ===================== หน่วย 2 ===================== -->
+  <h2 class="sec" id="u2"><span class="sec-tag">หน่วย 2</span><br>คลื่นวิทยุและ LoRa</h2>
+  <div class="lead-in">หัวใจการสื่อสารของระบบคือคลื่นวิทยุ <b>LoRa ความถี่ 433 MHz</b> ที่ส่งได้ไกลและทะลุสิ่งกีดขวางได้ดี</div>
+  <h3>เนื้อหา</h3>
+  <p><span class="kt">คลื่นวิทยุ</span> เป็นคลื่นแม่เหล็กไฟฟ้าชนิดหนึ่ง เดินทางในอากาศด้วยความเร็วแสง มีคุณสมบัติสำคัญคือ <b>ความถี่</b> (จำนวนรอบต่อวินาที หน่วยเฮิรตซ์ Hz) โดยทั่วไป <b>ความถี่ยิ่งต่ำ ยิ่งทะลุสิ่งกีดขวางและเลี้ยวเบนได้ดี และเดินทางได้ไกล</b> ส่วนความถี่สูงจะถูกดูดซับง่ายกว่า</p>
+  <p><span class="kt">LoRa</span> (ย่อจาก Long Range) เป็นเทคนิคการส่งวิทยุระยะไกลที่ใช้พลังงานต่ำ ระบบนี้ใช้ความถี่ <code>433 MHz</code> ซึ่ง <b>ต่ำกว่า Wi-Fi และ Bluetooth (2.4 GHz) มาก</b> จึงทะลุคอนกรีตและซากอาคารได้ดีกว่า เหมาะกับการหาคนใต้ซาก และไปได้ไกลเป็นสิบ ๆ เมตรถึงกิโลเมตรในที่โล่ง</p>
+  <p>ค่าตั้งค่าที่สำคัญของ LoRa มีการแลกเปลี่ยน (trade-off) ระหว่าง "ระยะทาง" กับ "ความเร็ว":</p>
+  <div class="card tbl-scroll"><table>
+    <thead><tr><th>พารามิเตอร์</th><th>ความหมาย</th><th>ผล</th></tr></thead>
+    <tbody>
+      <tr><td><b>SF</b> (Spreading Factor)</td><td>ระดับการกระจายสัญญาณ (SF7–SF12)</td><td>SF สูง = ไกล/ทนสัญญาณรบกวนมากขึ้น แต่ช้าลง</td></tr>
+      <tr><td><b>BW</b> (Bandwidth)</td><td>ความกว้างช่องสัญญาณ (125 kHz)</td><td>แคบ = ไกลขึ้น · กว้าง = เร็วขึ้น</td></tr>
+      <tr><td><b>CR</b> (Coding Rate)</td><td>สัดส่วนบิตตรวจแก้ข้อผิดพลาด (4/5)</td><td>มากขึ้น = ทนพลาดดีขึ้น แต่ข้อมูลจริงน้อยลง</td></tr>
+      <tr><td><b>RSSI</b></td><td>ความแรงสัญญาณที่รับได้ (dBm ค่าติดลบ)</td><td>ยิ่งใกล้ 0 = ยิ่งแรง = อยู่ใกล้</td></tr>
+    </tbody>
+  </table></div>
+  <p><span class="kt">RSSI</span> (Received Signal Strength Indicator) เป็นตัวเลขบอกว่าเครื่องรับได้สัญญาณแรงแค่ไหน มีหน่วย dBm เป็นค่าติดลบ เช่น −40 dBm แรงกว่า −90 dBm ค่านี้สำคัญมากเพราะระบบใช้มัน <b>ประเมินว่าผู้ประสบภัยอยู่ใกล้เสาต้นไหน</b></p>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>ทำไม 433 MHz ทะลุซากได้ดีกว่า 2.4 GHz (ความถี่ต่ำ = ทะลุดี)</li>
+    <li>ความหมายของ SF, BW, CR และผลต่อระยะ/ความเร็ว</li>
+    <li>RSSI คืออะไร ค่าติดลบมากหรือน้อยแปลว่าอยู่ใกล้/ไกล</li>
+  </ul></div>
+  <details class="q"><summary>ค่า RSSI = −45 dBm กับ −85 dBm ค่าใดแสดงว่าอยู่ใกล้เสามากกว่า เพราะอะไร<span class="qtype">ปรนัย/อธิบาย</span></summary>
+    <div class="ans"><b>เฉลย:</b> −45 dBm อยู่ใกล้กว่า เพราะ RSSI เป็นค่าติดลบ ยิ่งเข้าใกล้ 0 (ติดลบน้อย) แปลว่าสัญญาณยิ่งแรง = แหล่งกำเนิดอยู่ใกล้</div></details>
+  <details class="q"><summary>เหตุใดระบบจึงเลือกความถี่ 433 MHz แทน 2.4 GHz แบบ Wi-Fi<span class="qtype">อัตนัย</span></summary>
+    <div class="ans"><b>แนวคำตอบ:</b> เพราะ 433 MHz เป็นความถี่ต่ำกว่า จึงทะลุคอนกรีต/ซากอาคารและเลี้ยวเบนผ่านสิ่งกีดขวางได้ดีกว่า และเดินทางได้ไกลกว่า เหมาะกับการค้นหาผู้รอดใต้ซาก ส่วน 2.4 GHz ถูกวัสดุดูดซับง่ายทำให้ระยะสั้น</div></details>
+
+  <!-- ===================== หน่วย 3 ===================== -->
+  <h2 class="sec" id="u3"><span class="sec-tag">หน่วย 3</span><br>การแบ่งเวลา TDMA</h2>
+  <div class="lead-in">มีอุปกรณ์หลายตัวแต่มีช่องวิทยุเดียว จึงต้อง "ผลัดกันส่ง" ด้วยการแบ่งเวลาแบบ <b>TDMA</b></div>
+  <h3>เนื้อหา</h3>
+  <p>ทุกอุปกรณ์ในระบบใช้ <b>ช่องความถี่วิทยุเดียวกัน (433 MHz)</b> ถ้าปล่อยให้ส่งพร้อมกัน สัญญาณจะ <span class="kt">ชนกัน (collision)</span> และเสียหายทั้งคู่ เปรียบเหมือนคนหลายคนพูดพร้อมกันในห้องเดียว จะฟังไม่รู้เรื่อง</p>
+  <p><span class="kt">TDMA</span> (Time Division Multiple Access — การเข้าถึงหลายทางด้วยการแบ่งเวลา) แก้ปัญหานี้โดย <b>แบ่งเวลาออกเป็นช่วงย่อย (slot) แล้วกำหนดให้แต่ละอุปกรณ์ส่งเฉพาะช่องเวลาของตัวเอง</b> เหมือนการผลัดกันพูดทีละคน</p>
+  <p>ระบบใช้รอบเวลา <code>10 วินาที</code> แบ่งเป็น <code>10 ช่อง</code> ช่องละ <code>1 วินาที</code> โดยศูนย์ควบคุมจะส่งสัญญาณ <span class="kt">BEACON</span> ในช่องแรกเพื่อ <b>จับเวลาให้ทุกอุปกรณ์ตรงกัน (synchronization)</b> เหมือนสัญญาณนกหวีดบอกให้เริ่มนับเวลาพร้อมกัน</p>
+  <div class="card tbl-scroll"><table>
+    <thead><tr><th>ช่อง</th><th>ผู้ส่ง</th><th>ส่งอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>0</code></td><td>ศูนย์ควบคุม</td><td>BEACON — จับเวลา + คำสั่ง</td></tr>
+      <tr><td><code>1–2</code></td><td>กำไล</td><td>ชีพจร + สถานะ (HEARTBEAT)</td></tr>
+      <tr><td><code>3–6</code></td><td>เสา ×4</td><td>รายงาน RSSI ที่ได้ยิน</td></tr>
+      <tr><td><code>7</code></td><td>ศูนย์ควบคุม</td><td>คำสั่งภารกิจ</td></tr>
+      <tr><td><code>8</code></td><td>เครื่องกู้ภัย</td><td>ยืนยันภารกิจ</td></tr>
+      <tr><td><code>9</code></td><td>สำรอง</td><td>ช่องฉุกเฉินสำรอง</td></tr>
+    </tbody>
+  </table></div>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>ปัญหาที่ TDMA แก้คืออะไร (การชนกันของสัญญาณ)</li>
+    <li>หน้าที่ของ BEACON (จับเวลาให้ตรงกัน)</li>
+    <li>คำนวณ: 1 รอบมีกี่วินาที กี่ช่อง ช่องละกี่วินาที</li>
+  </ul></div>
+  <details class="q"><summary>ถ้าอุปกรณ์ทุกตัวส่งสัญญาณพร้อมกันบนความถี่เดียว จะเกิดปัญหาอะไร และ TDMA แก้อย่างไร<span class="qtype">อัตนัย</span></summary>
+    <div class="ans"><b>แนวคำตอบ:</b> สัญญาณจะชนกัน (collision) ทำให้ข้อมูลเสียหายรับไม่ได้ TDMA แก้โดยแบ่งเวลาเป็นช่อง แล้วให้แต่ละอุปกรณ์ส่งเฉพาะช่องเวลาของตน จึงไม่ทับกัน โดยมี BEACON คอยจับเวลาให้ทุกตัวตรงกัน</div></details>
+  <details class="q"><summary>รอบ TDMA ยาว 10 วินาที แบ่งเป็น 10 ช่อง แต่ละช่องยาวเท่าใด และเสาสัญญาณใช้ช่องใดบ้าง<span class="qtype">คำนวณ/เติมคำ</span></summary>
+    <div class="ans"><b>เฉลย:</b> ช่องละ 10÷10 = <b>1 วินาที</b> · เสาสัญญาณ (4 ต้น) ใช้ช่องที่ <b>3–6</b></div></details>
+
+  <!-- ===================== หน่วย 4 ===================== -->
+  <h2 class="sec" id="u4"><span class="sec-tag">หน่วย 4</span><br>อุปกรณ์ 4 ชนิดและบทบาท</h2>
+  <div class="lead-in">แต่ละอุปกรณ์มีหน้าที่เฉพาะ ทำงานร่วมกันเป็นระบบ</div>
+  <div class="card tbl-scroll"><table>
+    <thead><tr><th>อุปกรณ์</th><th>ใครใช้/อยู่ที่ไหน</th><th>หน้าที่หลัก</th></tr></thead>
+    <tbody>
+      <tr><td><b>Band-Node</b><br>กำไลข้อมือ</td><td>ผู้ประสบภัยสวม</td><td>วัดชีพจร แล้วส่งสัญญาณบอกว่า "ยังอยู่ตรงนี้"</td></tr>
+      <tr><td><b>ResQ-Pin</b> ×4<br>เสาสัญญาณ</td><td>ติดตั้งรอบพื้นที่</td><td>ฟังสัญญาณกำไล วัดความแรง (RSSI) รายงานศูนย์ → ใช้หาตำแหน่ง</td></tr>
+      <tr><td><b>ResQ-Node</b><br>เครื่องพกพา</td><td>เจ้าหน้าที่กู้ภัยถือ</td><td>รับคำสั่งเป้าหมาย + ข้อมูลผู้สวม นำทางเข้าหาด้วยความแรงสัญญาณ</td></tr>
+      <tr><td><b>MainNode</b><br>ศูนย์ควบคุม</td><td>จุดบัญชาการ</td><td>จับเวลา TDMA · รวมข้อมูล · คิดคะแนนความสำคัญ · เชื่อมคอมพิวเตอร์</td></tr>
+    </tbody>
+  </table></div>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>จับคู่อุปกรณ์กับหน้าที่</li>
+    <li>อุปกรณ์ใดทำหน้าที่ "จับเวลา" ให้ทั้งระบบ (MainNode)</li>
+    <li>เสาสัญญาณช่วยเรื่องอะไร (ระบุตำแหน่งจาก RSSI)</li>
+  </ul></div>
+  <details class="q"><summary>อุปกรณ์ใดทำหน้าที่ประมวลผลกลางและจับเวลา TDMA ให้ทั้งระบบ<span class="qtype">ปรนัย</span></summary>
+    <div class="ans"><b>เฉลย:</b> MainNode (ศูนย์ควบคุม) — ส่ง BEACON จับเวลา รวมข้อมูล และคำนวณลำดับความสำคัญ</div></details>
+
+  <!-- ===================== หน่วย 5 ===================== -->
+  <h2 class="sec" id="u5"><span class="sec-tag">หน่วย 5</span><br>ไมโครคอนโทรลเลอร์ ESP32 และการเชื่อมต่อ</h2>
+  <div class="lead-in">"สมอง" ของทุกอุปกรณ์คือไมโครคอนโทรลเลอร์ <b>ESP32</b> ซึ่งอ่านเซนเซอร์และคุมวิทยุ</div>
+  <h3>เนื้อหา</h3>
+  <p><span class="kt">ไมโครคอนโทรลเลอร์ (MCU)</span> คือคอมพิวเตอร์ขนาดเล็กบนชิปเดียว มีหน่วยประมวลผล หน่วยความจำ และขาสัญญาณในตัว ระบบนี้ใช้ <span class="kt">ESP32</span> (และรุ่น ESP32-S3 สำหรับศูนย์ควบคุม) ซึ่งมี Wi-Fi และ Bluetooth ในตัว</p>
+  <p>MCU ติดต่อกับอุปกรณ์อื่นผ่าน "ขาสัญญาณ" (<span class="kt">GPIO</span>) และมาตรฐานการสื่อสารหลัก 3 แบบ:</p>
+  <div class="card tbl-scroll"><table>
+    <thead><tr><th>มาตรฐาน</th><th>ใช้กับ</th><th>ลักษณะ</th></tr></thead>
+    <tbody>
+      <tr><td><b>I2C</b></td><td>เซนเซอร์ชีพจร</td><td>ใช้ 2 สาย (SDA=ข้อมูล, SCL=จังหวะ) ต่ออุปกรณ์หลายตัวบนสายเดียว แต่ละตัวมี "ที่อยู่" (address)</td></tr>
+      <tr><td><b>SPI</b></td><td>โมดูลวิทยุ LoRa</td><td>เร็วกว่า ใช้ 4 สาย (SCK, MISO, MOSI, CS) เหมาะกับข้อมูลปริมาณมาก</td></tr>
+      <tr><td><b>USB (Serial)</b></td><td>ศูนย์ ↔ คอมพิวเตอร์</td><td>ส่งข้อมูลเป็นข้อความ (JSON) ให้หน้าเว็บแสดงผล</td></tr>
+    </tbody>
+  </table></div>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>MCU คืออะไร ต่างจากคอมพิวเตอร์ทั่วไปอย่างไร</li>
+    <li>I2C ใช้กี่สาย, SPI ใช้กี่สาย, ใช้กับอะไร</li>
+    <li>GPIO คืออะไร</li>
+  </ul></div>
+  <details class="q"><summary>เซนเซอร์วัดชีพจรเชื่อมต่อกับ ESP32 ด้วยมาตรฐานใด และใช้กี่สายสัญญาณ<span class="qtype">ปรนัย</span></summary>
+    <div class="ans"><b>เฉลย:</b> ใช้ <b>I2C</b> จำนวน 2 สายสัญญาณ คือ SDA (สายข้อมูล) และ SCL (สายจังหวะสัญญาณนาฬิกา)</div></details>
+
+  <!-- ===================== หน่วย 6 ===================== -->
+  <h2 class="sec" id="u6"><span class="sec-tag">หน่วย 6</span><br>เซนเซอร์วัดชีพจร MAX30102</h2>
+  <div class="lead-in">กำไลวัดชีพจรด้วย "แสง" ผ่านเทคนิค <b>PPG</b> ไม่ต้องเจาะหรือสัมผัสกระแสไฟ</div>
+  <h3>เนื้อหา</h3>
+  <p><span class="kt">MAX30102</span> เป็นเซนเซอร์วัดชีพจรแบบใช้แสง หลักการเรียกว่า <span class="kt">PPG (Photoplethysmography)</span>: เซนเซอร์ยิงแสง (LED อินฟราเรด) เข้าไปที่ผิวหนัง แล้ววัดปริมาณแสงที่สะท้อนกลับ</p>
+  <p>เมื่อหัวใจเต้นแต่ละครั้ง เลือดจะไหลผ่านหลอดเลือดใต้ผิวมากขึ้น <b>เลือดที่มากขึ้นดูดกลืนแสงมากขึ้น แสงสะท้อนกลับจึงลดลงเป็นจังหวะ</b> เซนเซอร์นับจังหวะการเปลี่ยนแปลงนี้แล้วคำนวณเป็น <b>อัตราการเต้นหัวใจ (Heart Rate) หน่วยครั้งต่อนาที (bpm)</b></p>
+  <p>ข้อควรระวังทางเทคนิค: สัญญาณ PPG หนึ่งจังหวะหัวใจมีคลื่นสะท้อนตามมาเล็ก ๆ ถ้าตั้งค่าไวเกินไป ระบบอาจ <b>นับซ้ำ (double-count)</b> ทำให้ค่าชีพจรสูงผิด (เช่น จริง 90 อ่านได้ ~180) จึงต้องกำหนด "ช่วงเวลาห้ามนับซ้ำ" เพื่อให้ค่าถูกต้อง</p>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>PPG วัดชีพจรด้วยหลักการอะไร (แสง/การสะท้อน)</li>
+    <li>ทำไมเลือดที่ไหลมากทำให้แสงสะท้อนน้อยลง</li>
+    <li>หน่วยของอัตราการเต้นหัวใจ (bpm)</li>
+  </ul></div>
+  <details class="q"><summary>เซนเซอร์ MAX30102 วัดชีพจรได้อย่างไร โดยไม่ต้องเจาะเลือด<span class="qtype">อัตนัย</span></summary>
+    <div class="ans"><b>แนวคำตอบ:</b> ใช้หลักการ PPG คือยิงแสง (อินฟราเรด) เข้าผิวหนังแล้ววัดแสงสะท้อนกลับ ทุกครั้งที่หัวใจเต้น เลือดไหลผ่านมากขึ้นและดูดกลืนแสงมากขึ้น แสงสะท้อนจึงลดลงเป็นจังหวะ เซนเซอร์นับจังหวะนี้แล้วแปลงเป็นอัตราการเต้นหัวใจ (bpm)</div></details>
+
+  <!-- ===================== หน่วย 7 ===================== -->
+  <h2 class="sec" id="u7"><span class="sec-tag">หน่วย 7</span><br>โปรโตคอลและการตรวจสอบข้อผิดพลาด</h2>
+  <div class="lead-in">ข้อมูลถูกจัดเป็น "แพ็กเก็ต" ที่มีรูปแบบตายตัว และมี <b>CRC</b> ตรวจว่าไม่เพี้ยนระหว่างส่ง</div>
+  <h3>เนื้อหา</h3>
+  <p><span class="kt">โปรโตคอล (Protocol)</span> คือข้อตกลงรูปแบบการสื่อสารที่ทุกอุปกรณ์เข้าใจตรงกัน ข้อมูลจะถูกจัดเป็น <span class="kt">แพ็กเก็ต (Packet)</span> ซึ่งมีส่วนประกอบเช่น: รหัสเริ่มต้น (magic) · ชนิดแพ็กเก็ต · เนื้อข้อมูล (เช่น ชีพจร) · และรหัสตรวจสอบท้ายสุด</p>
+  <p>ชนิดแพ็กเก็ตหลักในระบบ เช่น <code>BEACON</code> (จับเวลา) · <code>HEARTBEAT</code> (ชีพจรจากกำไล) · <code>PIN_SIGHTING</code> (RSSI จากเสา) · <code>ASSIGNMENT</code> (สั่งกู้ภัย) · <code>FOUND</code> (ยืนยันพบ)</p>
+  <p><span class="kt">CRC (Cyclic Redundancy Check)</span> คือค่าตรวจสอบที่คำนวณจากข้อมูลแล้วแนบไปท้ายแพ็กเก็ต ฝั่งรับจะคำนวณใหม่แล้วเทียบ ถ้าไม่ตรง แปลว่า <b>ข้อมูลเพี้ยนระหว่างทาง (เพราะสัญญาณวิทยุมีสัญญาณรบกวน/noise)</b> ก็จะทิ้งแพ็กเก็ตนั้น เพื่อไม่ให้ระบบใช้ข้อมูลผิด ระบบนี้ใช้ CRC ขนาด 16 บิต (CRC16)</p>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>Packet คืออะไร มีองค์ประกอบอะไรบ้าง</li>
+    <li>CRC มีไว้ทำอะไร ทำไมการส่งวิทยุจึงต้องมี</li>
+    <li>ยกตัวอย่างชนิดแพ็กเก็ตและหน้าที่</li>
+  </ul></div>
+  <details class="q"><summary>CRC ในแพ็กเก็ตมีหน้าที่อะไร และเหตุใดการสื่อสารด้วยวิทยุจึงจำเป็นต้องมี<span class="qtype">อัตนัย</span></summary>
+    <div class="ans"><b>แนวคำตอบ:</b> CRC เป็นรหัสตรวจสอบความถูกต้องของข้อมูล ฝั่งรับคำนวณใหม่แล้วเทียบกับที่ส่งมา ถ้าไม่ตรงแสดงว่าข้อมูลเพี้ยน จำเป็นเพราะสัญญาณวิทยุมีสัญญาณรบกวน (noise) ทำให้บิตข้อมูลผิดพลาดได้ CRC ช่วยให้ระบบทิ้งข้อมูลที่ผิดแทนที่จะนำไปใช้</div></details>
+
+  <!-- ===================== หน่วย 8 ===================== -->
+  <h2 class="sec" id="u8"><span class="sec-tag">หน่วย 8</span><br>การคัดแยกผู้ป่วย (Triage) และคะแนนความสำคัญ</h2>
+  <div class="lead-in">เมื่อเจอผู้รอดหลายคนแต่กู้ภัยมีจำกัด ต้องตัดสินใจว่า <b>ช่วยใครก่อน</b> ด้วยระบบให้คะแนน</div>
+  <h3>เนื้อหา</h3>
+  <p><span class="kt">Triage</span> คือการคัดแยกผู้ป่วยตามความรุนแรงเพื่อจัดลำดับการช่วยเหลือ นิยมใช้รหัสสี: <b style="color:var(--ok)">เขียว = ปลอดภัย</b>, <b style="color:var(--warn)">เหลือง = เฝ้าระวัง</b>, <b style="color:var(--rescue)">แดง = วิกฤต</b>, <b>ดำ = เสียชีวิต</b></p>
+  <p>ศูนย์ควบคุมให้ <b>คะแนนความเร่งด่วน</b> แก่ผู้ประสบภัยแต่ละคนแล้วส่งกู้ภัยไปหาคนคะแนนสูงสุดก่อน เกณฑ์คะแนนจริงในระบบ:</p>
+  <div class="card tbl-scroll"><table>
+    <thead><tr><th>ปัจจัย</th><th>เงื่อนไข</th><th>คะแนน</th></tr></thead>
+    <tbody>
+      <tr><td>ชีพจรผิดปกติ</td><td>วิกฤต (&lt;40 หรือ &gt;150 ครั้ง/นาที) / เฝ้าระวัง</td><td><code>+100 / +30</code></td></tr>
+      <tr><td>เงียบหาย</td><td>ไม่ส่งสัญญาณ (ต่อ 1 นาที, สูงสุด +200)</td><td><code>+20 / นาที</code></td></tr>
+      <tr><td>ผู้ควบคุมสั่งเร่ง</td><td>กดปุ่มเพิ่มความสำคัญ (Boost)</td><td><code>+500</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>Triage คืออะไร รหัสสีแต่ละสีหมายถึงอะไร</li>
+    <li>ทำไมต้องจัดลำดับ (ทรัพยากรจำกัด)</li>
+    <li>คำนวณคะแนนรวมจากเงื่อนไขที่กำหนด</li>
+  </ul></div>
+  <details class="q"><summary>ผู้ประสบภัย A ชีพจร 170 (วิกฤต) และเงียบหายไป 2 นาที ส่วน B ชีพจรปกติแต่ถูกกด Boost ใครควรถูกช่วยก่อน<span class="qtype">วิเคราะห์/คำนวณ</span></summary>
+    <div class="ans"><b>เฉลย:</b> A ได้ 100 (ชีพจรวิกฤต) + 40 (เงียบ 2 นาที × 20) = <b>140</b> · B ได้ 500 (Boost) = <b>500</b> → ควรช่วย <b>B</b> ก่อน เพราะผู้ควบคุมสั่งเร่งด้วยตนเอง (คะแนนสูงกว่า) — ข้อนี้สอนว่าคำสั่งมนุษย์มีน้ำหนักเหนือคะแนนอัตโนมัติ</div></details>
+
+  <!-- ===================== หน่วย 9 ===================== -->
+  <h2 class="sec" id="u9"><span class="sec-tag">หน่วย 9</span><br>การระบุตำแหน่งจาก RSSI</h2>
+  <div class="lead-in">ระบบไม่ใช้ GPS แต่ประเมินตำแหน่งจาก <b>ความแรงสัญญาณ (RSSI) ที่เสาหลายต้นได้ยิน</b></div>
+  <h3>เนื้อหา</h3>
+  <p>หลักการพื้นฐาน: <b>ยิ่งกำไลอยู่ใกล้เสาต้นใด เสานั้นจะได้ยินสัญญาณแรง (RSSI สูง)</b> ถ้ามีเสาเพียงต้นเดียว จะรู้แค่ว่าอยู่ "ใกล้ต้นนั้น" แต่ไม่รู้ทิศ</p>
+  <p>เมื่อใช้ <b>เสาหลายต้น</b> (ในระบบมี 4 ต้น) เรารู้ RSSI จากทุกต้น แล้วนำมา <span class="kt">ถ่วงน้ำหนัก (weighted centroid)</span>: เสาที่ได้ยินแรงกว่ามีน้ำหนักมากกว่า ตำแหน่งประมาณจึงถูกดึงเข้าหาเสาที่แรงที่สุด แต่ยังอยู่ "ระหว่าง" เสาต่าง ๆ ตามสัดส่วน — แนวคิดนี้คล้าย <span class="kt">trilateration</span> (การหาตำแหน่งจากระยะถึงจุดอ้างอิงหลายจุด)</p>
+  <p>ในระยะสุดท้าย (last-meter) เจ้าหน้าที่กู้ภัยใช้หลักการเดียวกันแบบ <b>"ร้อน/เย็น"</b>: เดินไปทางที่สัญญาณแรงขึ้น (ร้อน) = เข้าใกล้ เดินผิดทางสัญญาณอ่อนลง (เย็น) = ห่างออก</p>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>ทำไมเสา 1 ต้นไม่พอ ต้องใช้หลายต้น</li>
+    <li>weighted centroid / trilateration ทำงานอย่างไรเบื้องต้น</li>
+    <li>การนำทาง "ร้อน/เย็น" หมายถึงอะไร</li>
+  </ul></div>
+  <details class="q"><summary>เพราะเหตุใดการใช้เสาสัญญาณเพียงต้นเดียวจึงระบุตำแหน่งได้ไม่แม่นยำ<span class="qtype">อัตนัย</span></summary>
+    <div class="ans"><b>แนวคำตอบ:</b> เสา 1 ต้นบอกได้แค่ว่า "อยู่ใกล้หรือไกล" จากความแรงสัญญาณ แต่ไม่บอกทิศทาง ผู้ประสบภัยจึงอาจอยู่รอบเสาเป็นวงกลมทิศไหนก็ได้ ต้องใช้หลายต้นแล้วเทียบความแรงเพื่อ "ตีกรอบ" ตำแหน่งให้แคบลง (trilateration)</div></details>
+
+  <!-- ===================== หน่วย 10 ===================== -->
+  <h2 class="sec" id="u10"><span class="sec-tag">หน่วย 10</span><br>การไหลของข้อมูลและซอฟต์แวร์</h2>
+  <div class="lead-in">ข้อมูลไหลจากกำไล → เสา/ศูนย์ → คอมพิวเตอร์ → กลับไปเครื่องกู้ภัย เป็นวงจรครบ</div>
+  <h3>เนื้อหา — เส้นทางข้อมูล (สรุปเป็นขั้น)</h3>
+  <ol>
+    <li><b>กำไล</b> วัดชีพจร → ส่งสัญญาณ HEARTBEAT ทาง LoRa ตามช่อง TDMA</li>
+    <li><b>เสา 4 ต้น</b> ได้ยินสัญญาณ → วัด RSSI → รายงานให้ศูนย์</li>
+    <li><b>ศูนย์ควบคุม</b> รวมชีพจร + RSSI → คิดคะแนน Triage + ประเมินตำแหน่ง → ส่งข้อมูลผ่านสาย USB ให้คอมพิวเตอร์</li>
+    <li><b>หน้าเว็บศูนย์สั่งการ</b> (บนคอมพิวเตอร์) แสดงแผนที่ ตำแหน่ง คิวลำดับความสำคัญ ให้ผู้ควบคุมตัดสินใจ</li>
+    <li>ผู้ควบคุมสั่งช่วยเหลือ → ศูนย์ส่งคำสั่ง (ASSIGNMENT) พร้อมข้อมูลผู้สวมทาง LoRa ให้ <b>เครื่องกู้ภัย</b></li>
+    <li><b>เครื่องกู้ภัย</b> แสดงเป้าหมาย+ข้อมูลบนหน้าจอของตัวเอง → นำทางเข้าหา → กดยืนยันเมื่อพบ (FOUND)</li>
+  </ol>
+  <p>ส่วนซอฟต์แวร์: คอมพิวเตอร์เชื่อมกับศูนย์ผ่าน <span class="kt">USB (Web Serial)</span> รับข้อมูลเป็นข้อความ แล้วหน้าเว็บนำมาวาดบน <b>แผนที่</b> ส่วนเครื่องกู้ภัยมีหน้าเว็บของตัวเอง (ผ่าน Wi-Fi ในตัว) เพื่อทำงานได้แม้ไม่มีอินเทอร์เน็ต</p>
+  <div class="focus"><div class="h">🎯 จุดที่มักออกสอบ</div><ul>
+    <li>เรียงลำดับเส้นทางข้อมูลจากกำไลจนถึงเครื่องกู้ภัย</li>
+    <li>ศูนย์เชื่อมกับคอมพิวเตอร์ด้วยอะไร (USB)</li>
+    <li>ทำไมเครื่องกู้ภัยต้องมีหน้าเว็บของตัวเอง (ทำงานแบบออฟไลน์)</li>
+  </ul></div>
+  <details class="q"><summary>จงเรียงลำดับการไหลของข้อมูลตั้งแต่กำไลวัดชีพจร จนเจ้าหน้าที่ได้รับคำสั่งภารกิจ<span class="qtype">เรียงลำดับ</span></summary>
+    <div class="ans"><b>เฉลย:</b> กำไลส่ง HEARTBEAT → เส ารับ+วัด RSSI รายงานศูนย์ → ศูนย์รวมข้อมูล คิดคะแนน+ตำแหน่ง → ส่งผ่าน USB ให้เว็บแสดงแผนที่ → ผู้ควบคุมสั่งช่วย → ศูนย์ส่ง ASSIGNMENT ทาง LoRa → เครื่องกู้ภัยรับและนำทาง</div></details>
+
+  <!-- ===================== อภิธานศัพท์ ===================== -->
+  <h2 class="sec">อภิธานศัพท์สำคัญ (ทบทวนก่อนสอบ)</h2>
+  <div class="card tbl-scroll"><table>
+    <thead><tr><th>คำศัพท์</th><th>ความหมายสั้น ๆ</th></tr></thead>
+    <tbody>
+      <tr><td><b>USAR</b></td><td>การค้นหาและกู้ภัยในเขตเมือง (ตึกถล่ม/แผ่นดินไหว)</td></tr>
+      <tr><td><b>LoRa</b></td><td>เทคนิควิทยุระยะไกล พลังงานต่ำ (ระบบใช้ 433 MHz)</td></tr>
+      <tr><td><b>RSSI</b></td><td>ความแรงสัญญาณที่รับได้ (dBm ค่าติดลบ ยิ่งใกล้ 0 ยิ่งแรง)</td></tr>
+      <tr><td><b>TDMA</b></td><td>การแบ่งเวลาให้อุปกรณ์ผลัดกันส่ง ป้องกันสัญญาณชนกัน</td></tr>
+      <tr><td><b>BEACON</b></td><td>สัญญาณจากศูนย์ที่ใช้จับเวลาให้ทุกอุปกรณ์ตรงกัน</td></tr>
+      <tr><td><b>MCU</b></td><td>ไมโครคอนโทรลเลอร์ — คอมพิวเตอร์เล็กบนชิป (ระบบใช้ ESP32)</td></tr>
+      <tr><td><b>I2C / SPI</b></td><td>มาตรฐานเชื่อมเซนเซอร์ (I2C 2 สาย) / โมดูลวิทยุ (SPI 4 สาย)</td></tr>
+      <tr><td><b>PPG</b></td><td>การวัดชีพจรด้วยแสงและการสะท้อน (เซนเซอร์ MAX30102)</td></tr>
+      <tr><td><b>Packet</b></td><td>หน่วยข้อมูลที่มีรูปแบบตายตัวสำหรับส่งสื่อสาร</td></tr>
+      <tr><td><b>CRC</b></td><td>รหัสตรวจสอบว่าข้อมูลไม่เพี้ยนระหว่างส่ง</td></tr>
+      <tr><td><b>Triage</b></td><td>การคัดแยก/จัดลำดับผู้ป่วยตามความรุนแรง (รหัสสี)</td></tr>
+      <tr><td><b>Trilateration</b></td><td>การหาตำแหน่งจากระยะ (ความแรงสัญญาณ) ถึงจุดอ้างอิงหลายจุด</td></tr>
+    </tbody>
+  </table></div>
+
+  <footer>ResQ-Band · คู่มือติวและแนวข้อสอบเชิงทฤษฎี (ระดับมัธยมปลาย) — 10 หน่วยการเรียน + อภิธานศัพท์</footer>
+</div>
+
+</body></html>

@@ -1,24 +1,10 @@
 // ============================================================================
-// ResQ-Band-Node  (ESP32-C3, worn wristband)
+// ResQ-Band-Node v2 (Worn wristband)
 // ----------------------------------------------------------------------------
-// MVP: protocol-correct skeleton. Real sensors (MPU6050 fall/tap, MAX30102
-// HR/SpO2) come in the next round - vitals are stubbed for now so the rest
-// of the stack (MainNode dispatch, web priority queue) can be exercised
-// end-to-end as soon as a Band board joins the air.
-//
-// Responsibilities now:
-//   - LoRa init with retry (non-fatal on failure, mirrors MainNode pattern)
-//   - Listen for BEACON to phase-lock our TDMA slot
-//   - TX HEARTBEAT (SOSPacket) once per cycle inside our own slot
-//   - RX RING_CMD targeting us  ->  drive buzzer + reply RING_ACK
-//   - Battery monitor via 2x100k voltage divider on PIN_VBAT_ADC
-//   - Status LED hints: dark=boot, blink=TX, slow blink=no LoRa
-//
-// Coming next:
-//   - MPU6050 tap interrupt -> emit SOS_TAP
-//   - MPU6050 free-fall detect -> emit SOS_FALL with g-force
-//   - MAX30102 polled HR / SpO2
-//   - UWB DW3000 (last-meter)
+// - LoRa 433 MHz TDMA slotting
+// - MAX30102 I2C pulse / heart rate sensor
+// - Vitals Critical SOS Trigger
+// - Remote RING_CMD buzzer actuation
 // ============================================================================
 
 #include <Arduino.h>
@@ -67,6 +53,18 @@ static bool     g_beacon_seen        = false;
 static bool     g_lora_ready         = false;
 static uint32_t g_last_lora_retry_ms = 0;
 static uint32_t g_last_hb_sent_cycle = 0;     // cycle id we last TX'd in
+
+// --- LoRa radio duty-cycling ------------------------------------------------
+// Keeping the SX1278 in continuous RX draws steady current + SPI noise that
+// tips a marginal board's MAX30102 I2C bus into timeouts (err263) so HR never
+// samples. Instead we keep the radio ASLEEP (rail quiet -> clean I2C -> HR
+// reads), wake only to transmit the heartbeat once per cycle, then open a
+// short RX window to still catch BEACON/RING_CMD before sleeping again.
+// Set to 0 to fall back to always-on RX.
+#define LORA_DUTY_CYCLE 1
+static const uint32_t LORA_LISTEN_MS = 1200;   // RX window opened after each TX
+static uint32_t g_radio_listen_until_ms = 0;   // 0 = radio asleep
+
 static uint32_t g_buzz_until_ms      = 0;
 static uint16_t g_buzz_freq_hz       = 2000;
 static uint8_t  g_buzz_pattern       = 0;
@@ -97,8 +95,13 @@ static bool connect_lora() {
   
   pinMode(PIN_LORA_DIO0, INPUT);
   attachInterrupt(digitalPinToInterrupt(PIN_LORA_DIO0), lora_isr, RISING);
-  
-  LoRa.receive();   // start listening
+
+#if LORA_DUTY_CYCLE
+  LoRa.sleep();             // stay asleep until the first heartbeat; keeps I2C clean
+  g_radio_listen_until_ms = 0;
+#else
+  LoRa.receive();           // continuous listen
+#endif
   return true;
 }
 
@@ -118,11 +121,21 @@ static uint8_t read_battery_pct() {
 template <typename Pkt>
 static bool tx_packet(const Pkt& pkt) {
   if (!g_lora_ready) return false;
-  LoRa.idle();
+  LoRa.idle();   // wakes the radio from sleep into standby for TX
+#if LORA_DUTY_CYCLE
+  if (!LoRa.beginPacket()) { LoRa.sleep(); g_radio_listen_until_ms = 0; return false; }
+  LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
+  const bool ok = LoRa.endPacket() == 1;
+  // Open a short listen window so we still catch BEACON/RING_CMD, then the loop
+  // puts the radio back to sleep once it expires.
+  LoRa.receive();
+  g_radio_listen_until_ms = millis() + LORA_LISTEN_MS;
+#else
   if (!LoRa.beginPacket()) { LoRa.receive(); return false; }
   LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
   const bool ok = LoRa.endPacket() == 1;
   LoRa.receive();
+#endif
   return ok;
 }
 
@@ -161,25 +174,25 @@ static void tx_ring_ack(uint8_t status) {
   tx_packet(pkt);
 }
 
-static void tx_emergency(uint8_t cause, float max_g) {
+static void tx_emergency(uint8_t cause, float /*max_g*/) {
   ++g_seq;
   read_vitals(&g_hr, &g_spo2);
-  g_g_x10 = (int16_t)(max_g * 10);
+  g_g_x10 = 0; // G-force cleared in v2 (no MPU6050)
   
   ResQ::SOSPacket pkt{};
   ResQ::fill_sos_packet(pkt,
-                        (cause == 1) ? ResQ::PKT_SOS_TAP : ResQ::PKT_SOS_FALL,
+                        ResQ::PKT_SOS_VITALS,
                         g_device_id,
                         g_seq,
                         ResQ::TRIAGE_RED, // Emergency implies RED triage
                         g_hr,
                         g_spo2,
                         read_battery_pct(),
-                        g_g_x10);
+                        0);
   digitalWrite(PIN_LED_STATUS, HIGH);
   tx_packet(pkt);
   digitalWrite(PIN_LED_STATUS, LOW);
-  Serial.printf("[SOS] cause=%u max_g=%.1f tx_seq=%u\n", cause, max_g, g_seq);
+  Serial.printf("[SOS] cause=%u (Vitals Critical) tx_seq=%u\n", cause, g_seq);
 }
 
 // ----------------------------------------------------------------------------
@@ -248,6 +261,13 @@ static void update_buzzer(uint32_t now) {
 // ----------------------------------------------------------------------------
 static bool should_tx_heartbeat(uint32_t now) {
   if (!g_lora_ready) return false;
+#if LORA_DUTY_CYCLE
+  // Radio sleeps most of the cycle, so we can't reliably hear the slot-0 beacon
+  // to phase-lock. Free-run one heartbeat per TDMA cycle instead.
+  static uint32_t next_free_dc = 0;
+  if (now >= next_free_dc) { next_free_dc = now + TDMA_CYCLE_MS; return true; }
+  return false;
+#endif
   if (!g_beacon_seen) {
     // Free-running fallback so we can verify TX even before MainNode is alive.
     // Once we see a beacon we'll switch to phase-locked.
@@ -286,6 +306,12 @@ void setup() {
   Serial.begin(115200);
   delay(SETUP_DELAY_MS);
 
+  // Lower the CPU clock to cut the ESP32's own current draw, so the shared 3V3
+  // rail sags less while the LoRa radio is active. On a marginal board this
+  // keeps the I2C bus to the MAX30102 from timing out (err263) without needing
+  // external pull-ups. 80 MHz is plenty for LoRa + TDMA + one I2C sensor.
+  setCpuFrequencyMhz(80);
+
   pinMode(PIN_LED_STATUS, OUTPUT);
   pinMode(PIN_BUZZER,     OUTPUT);
 
@@ -294,7 +320,10 @@ void setup() {
 
   analogReadResolution(12);
 
-  g_device_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
+  // The first 3-4 bytes of the MAC address are the manufacturer OUI, which are identical
+  // across chips from the same batch. We must shift by 16 bits to include the last 2 bytes 
+  // (which actually differ between chips) into the 32-bit device ID.
+  g_device_id = (uint32_t)(ESP.getEfuseMac() >> 16);
 
   Serial.println();
   Serial.printf("== %s fw=%s ==\n", BOARD_NAME, FW_VERSION);
@@ -302,18 +331,23 @@ void setup() {
                 g_device_id, (unsigned)BAND_INDEX,
                 (unsigned)(TDMA_SLOT_BAND_BASE + BAND_INDEX));
 
+  // --- Sensors FIRST -------------------------------------------------------
+  // MAX30102 (HR), powered from the AMS1117 rail.
+  // The MAX30102 MUST be initialised while the LoRa radio is still OFF. Once
+  // SX1278 is put into continuous RX its steady current draw sags the shared
+  // rail just enough that the MAX browns out and stops ACKing on I2C
+  // (init then reads PART_ID=0xFF and begin() fails), even though a standalone
+  // I2C scan with the radio off finds it perfectly (0x57 / PART_ID 0x15). So
+  // bring the sensor up first, in the same clean-rail condition as the scanner,
+  // then start the radio.
+  init_sensors();
+
   // --- LoRa ----------------------------------------------------------------
   delay(200); // let the rail settle after boot
   g_lora_ready = connect_lora();
   g_last_lora_retry_ms = millis();
   Serial.printf("[LoRa] init=%s\n", g_lora_ready ? "OK" : "FAIL (will retry)");
 
-  // --- Sensors -------------------------------------------------------------
-  // MPU6050 (fall/tap) + MAX30102 (HR), powered from the AMS1117 rail.
-  // BLE last-metre beacon removed for now: the BT-radio cold-start spike
-  // brown-outs the ESP32 rail on USB power. Re-add once the ESP32 has a
-  // bulk cap / stronger 5V supply.
-  init_sensors();
   Serial.println("[Setup] complete, entering loop");
 }
 
@@ -328,6 +362,15 @@ void loop() {
       on_lora_rx(packet_size);
     }
   }
+
+#if LORA_DUTY_CYCLE
+  // Close the post-TX listen window: put the radio back to sleep so the I2C bus
+  // to the MAX30102 is quiet again and HR can sample cleanly.
+  if (g_lora_ready && g_radio_listen_until_ms != 0 && now >= g_radio_listen_until_ms) {
+    LoRa.sleep();
+    g_radio_listen_until_ms = 0;
+  }
+#endif
 
   // --- LoRa retry while down -----------------------------------------------
   if (!g_lora_ready && now - g_last_lora_retry_ms >= LORA_RETRY_MS) {

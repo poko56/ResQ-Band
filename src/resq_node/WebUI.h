@@ -9,7 +9,6 @@ struct SeenBand {
   uint32_t last_seen_ms;
 };
 
-extern bool webui_wants_mode_switch;
 extern uint32_t webui_wants_target_id;
 
 void init_web_ui();

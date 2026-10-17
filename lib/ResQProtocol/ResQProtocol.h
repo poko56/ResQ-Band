@@ -34,8 +34,9 @@ enum PacketType : uint8_t {
   PKT_PIN_SET_SLOT_CMD = 0x62, // Main -> Pin: assign TDMA slot   (PinSetSlotCmdPacket)
   PKT_PIN_JOIN_REQ     = 0x63, // Pin -> Main: unassigned pin asking to join (PinJoinReqPacket)
   // Emergency (uses SOSPacket, distinguished by type)
-  PKT_SOS_TAP      = 0x20,  // Band -> Main: 3-tap SOS          (SOSPacket)
-  PKT_SOS_FALL     = 0x21,  // Band -> Main: fall detected      (SOSPacket)
+  PKT_SOS_TAP      = 0x20,  // Band -> Main: 3-tap SOS          (SOSPacket, legacy)
+  PKT_SOS_FALL     = 0x21,  // Band -> Main: fall detected      (SOSPacket, legacy)
+  PKT_SOS_VITALS   = 0x22,  // Band -> Main: vitals critical    (SOSPacket, v2)
 };
 
 enum TriageLevel : uint8_t {

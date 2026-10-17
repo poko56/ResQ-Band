@@ -71,7 +71,7 @@ export default function PinSetupPage() {
                           : "bg-app-input text-app-muted border border-dashed border-app-border"
                       }`}
                     >
-                      {index}
+                      {index + 1}
                     </div>
 
                     <div className="min-w-0 flex-1">
@@ -178,7 +178,8 @@ export default function PinSetupPage() {
                         >
                           <option value="">-- Select Slot --</option>
                           {slots.filter(s => !s.anchor).map(s => (
-                            <option key={s.index} value={s.index}>Slot {s.index}</option>
+                            /* value stays 0-based for the firmware; label is 1-based */
+                            <option key={s.index} value={s.index}>Slot {s.index + 1}</option>
                           ))}
                         </select>
                         <button

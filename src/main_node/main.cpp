@@ -344,10 +344,11 @@ static void on_lora_rx(int packet_size) {
   uint8_t ptype = ResQ::peek_packet_type(buf, n);
   g_last_rx_flash_ms = millis();
 
-  // -- HEARTBEAT / SOS_TAP / SOS_FALL all use SOSPacket --
-  if ((ptype == ResQ::PKT_HEARTBEAT ||
-       ptype == ResQ::PKT_SOS_TAP   ||
-       ptype == ResQ::PKT_SOS_FALL) && n >= sizeof(ResQ::SOSPacket)) {
+  // -- HEARTBEAT / SOS_TAP / SOS_FALL / SOS_VITALS all use SOSPacket --
+  if ((ptype == ResQ::PKT_HEARTBEAT  ||
+       ptype == ResQ::PKT_SOS_TAP    ||
+       ptype == ResQ::PKT_SOS_FALL   ||
+       ptype == ResQ::PKT_SOS_VITALS) && n >= sizeof(ResQ::SOSPacket)) {
     ResQ::SOSPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
     if (!ResQ::verify_sos_packet(pkt)) { g_rx_dropped++; return; }
@@ -359,7 +360,7 @@ static void on_lora_rx(int packet_size) {
     b.last_heartbeat_ms = millis();
     b.last_packet       = pkt;
 
-    if (ptype == ResQ::PKT_SOS_TAP || ptype == ResQ::PKT_SOS_FALL) {
+    if (ptype == ResQ::PKT_SOS_TAP || ptype == ResQ::PKT_SOS_FALL || ptype == ResQ::PKT_SOS_VITALS) {
       g_sos_pending_until_ms = millis() + MAIN_NODE_ALARM_MS;
     }
 
@@ -658,6 +659,7 @@ static int pick_best_pin(const BandState& b) {
 
 static ResQ::AssignReason classify_reason(const BandState& b, uint32_t now_ms) {
   if (b.manual_boost > 0) return ResQ::REASON_MANUAL_OVERRIDE;
+  if (b.last_packet.packet_type == ResQ::PKT_SOS_VITALS) return ResQ::REASON_VITALS_CRITICAL;
   if (b.last_packet.packet_type == ResQ::PKT_SOS_TAP)  return ResQ::REASON_TAP_SOS;
   if (b.last_packet.packet_type == ResQ::PKT_SOS_FALL) return ResQ::REASON_FALL_DETECTED;
   uint8_t hr = b.last_packet.heart_rate, spo2 = b.last_packet.spo2;
@@ -860,6 +862,21 @@ static void handle_serial_command(const char* line, size_t len) {
     r["tdma_cycle_ms"] = TDMA_CYCLE_MS;
     r["ts"]           = (uint32_t)millis();
     send_json_event(r);
+
+#if ENABLE_OTA
+    if (g_wifi_attempted) {
+      JsonDocument w;
+      w["t"]         = "wifi_status";
+      w["connected"] = WiFi.status() == WL_CONNECTED;
+      w["ssid"]      = WIFI_SSID;
+      if (WiFi.status() == WL_CONNECTED) {
+        w["ip"]   = WiFi.localIP().toString();
+        w["rssi"] = WiFi.RSSI();
+      }
+      w["ts"] = (uint32_t)millis();
+      send_json_event(w);
+    }
+#endif
   }
   else {
     JsonDocument r;

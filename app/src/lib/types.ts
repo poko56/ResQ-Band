@@ -85,6 +85,7 @@ export interface PinRssi {
   rssi: number;
   snr: number;
   ageMs: number;
+  timestamp: number;
 }
 
 export interface Sighting {

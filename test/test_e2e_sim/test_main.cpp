@@ -56,7 +56,8 @@ void test_e2e_fall_rescue_flow(void) {
     
     // MainNode generates Assignment Packet
     AssignmentPacket assignment_pkt;
-    fill_assignment(assignment_pkt, 0x04000001, main_received.device_id, 100, 1, -50, determined_triage, REASON_FALL_DETECTED);
+    fill_assignment(assignment_pkt, 0x04000001, main_received.device_id, 100, 1, -50, determined_triage, REASON_FALL_DETECTED,
+                    main_received.heart_rate, main_received.spo2, main_received.battery_pct, main_received.last_g_force_x10);
     
     // Send over the air
     ota_assign_buffer = assignment_pkt;

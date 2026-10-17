@@ -14,6 +14,11 @@ void test_sos_packet(void) {
     TEST_ASSERT_TRUE(verify_sos_packet(pkt));
     pkt.heart_rate = 90;
     TEST_ASSERT_FALSE(verify_sos_packet(pkt));
+
+    SOSPacket v_pkt;
+    fill_sos_packet(v_pkt, PKT_SOS_VITALS, 0x12345678, 2, TRIAGE_RED, 160, 95, 80, 0);
+    TEST_ASSERT_TRUE(verify_sos_packet(v_pkt));
+    TEST_ASSERT_EQUAL_STRING("SOS_VITALS", packet_type_label(PKT_SOS_VITALS));
 }
 
 void test_beacon_packet(void) {
@@ -26,7 +31,7 @@ void test_beacon_packet(void) {
 
 void test_assignment_packet(void) {
     AssignmentPacket pkt;
-    fill_assignment(pkt, 0x111, 0x222, 100, 1, -50, TRIAGE_RED, REASON_FALL_DETECTED);
+    fill_assignment(pkt, 0x111, 0x222, 100, 1, -50, TRIAGE_RED, REASON_FALL_DETECTED, 80, 98, 90, 0);
     TEST_ASSERT_EQUAL_UINT8(MAGIC, pkt.magic);
     TEST_ASSERT_EQUAL_UINT8(PKT_ASSIGNMENT, pkt.packet_type);
     TEST_ASSERT_TRUE(verify_assignment(pkt));

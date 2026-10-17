@@ -6,33 +6,44 @@
 #include "ResQConfig.h"
 #include "ResQProtocol.h"
 #include "Display.h"
-#include "BLE_Scanner.h"
 #include "WebUI.h"
 
-enum SearchMode : uint8_t {
-  MODE_LORA_SWEEP   = 0,
-  MODE_BLE_PINPOINT = 1,   // last-metre hot/cold from the band's BLE beacon
-};
-
-// ---- BLE last-metre test config --------------------------------------------
-// 0 = scan for ANY ResQ-Band beacon (simplest for the prototype). Set to a
-// specific band device_id to lock onto just that wearer.
-#define BLE_TEST_TARGET  0u
+// Single last-metre mode: LoRa RSSI hot/cold + distance from the band's
+// heartbeat. (BLE pinpoint removed - the band's BT beacon browned out its rail.)
 
 static uint32_t   g_device_id    = 0;
-// BLE beacon on the band is disabled for now (BT-radio brown-out), so boot
-// into LoRa sweep - the working last-metre mode (RSSI hot/cold from the band's
-// heartbeat). BLE pinpoint stays available via the mode button for when the
-// band's beacon is brought back.
-static SearchMode g_mode         = MODE_LORA_SWEEP;
 static uint32_t   g_last_tick_ms = 0;
-
-static uint32_t   g_target_id    = BLE_TEST_TARGET;
+static uint32_t   g_target_id    = 0;
 static int16_t    g_last_rssi    = -120;
 static uint8_t    g_last_hr      = 0;
 static uint8_t    g_last_spo2    = 0;
 static uint8_t    g_last_batt    = 0;
 static uint8_t    g_last_triage  = 0;
+
+// ---- RSSI -> distance (LoRa last-metre estimate) ---------------------------
+// Log-distance path loss:  d = 10 ^ ((RSSI_REF_1M - rssi) / (10 * PATH_LOSS_N))
+//
+// RSSI_REF_1M is the packet RSSI you would measure ~1 m from the band. It scales
+// with the band's TX power, so we DERIVE it from LORA_TX_POWER_DBM plus one
+// calibration constant, RSSI_1M_LOSS (the path loss at 1 m, antennas included).
+// Because the reference tracks TX power, dropping the band to 2 dBm no longer
+// inflates the distance - the whole RSSI curve shifts down and so does the ref.
+//
+// To calibrate in the field: stand 1 m from the band, read the RSSI the handheld
+// shows for it, then set RSSI_1M_LOSS = LORA_TX_POWER_DBM - that_rssi.
+//   e.g. TX = 2 dBm and RSSI at 1 m = -38  ->  RSSI_1M_LOSS = 2 - (-38) = 40
+static const float RSSI_1M_LOSS = 87.5f;                        // <-- field-calibrate
+static const float RSSI_REF_1M  = (float)LORA_TX_POWER_DBM - RSSI_1M_LOSS;
+static const float PATH_LOSS_N  = 2.5f;    // 2.0 = free space; higher through rubble
+
+// Rough distance in metres from a packet RSSI (<0 => unknown / out of range).
+static float rssi_to_distance_m(int16_t rssi) {
+  if (rssi >= 0 || rssi <= -120) return -1.0f;   // no / invalid reading
+  float d = powf(10.0f, (RSSI_REF_1M - (float)rssi) / (10.0f * PATH_LOSS_N));
+  if (d < 0.1f)   d = 0.1f;                        // clamp implausibly small
+  if (d > 500.0f) return -1.0f;                    // beyond useful range
+  return d;
+}
 
 #define MAX_SEEN_BANDS 10
 static SeenBand g_seen_bands[MAX_SEEN_BANDS];
@@ -63,17 +74,12 @@ static void update_seen_band(uint32_t id, int16_t rssi, uint8_t hr, uint8_t spo2
   }
 }
 
-static const char* mode_label(SearchMode m) {
-  return (m == MODE_LORA_SWEEP) ? "LoRa-Sweep" : "BLE-Pinpoint";
-}
-
 static void print_banner() {
   Serial.println();
   Serial.println(F("================================"));
   Serial.printf( "  %s\n", BOARD_NAME);
   Serial.printf( "  FW %s\n", FW_VERSION);
   Serial.printf( "  Device ID: %08X\n", g_device_id);
-  Serial.printf( "  Mode:      %s\n", mode_label(g_mode));
   Serial.println(F("================================"));
 }
 static void on_lora_rx(int packet_size);
@@ -180,7 +186,6 @@ static void process_lora_packet() {
       g_last_batt   = pkt.battery_pct;
       g_last_triage = pkt.triage_level;
       if (pkt.best_rssi != -127) g_last_rssi = pkt.best_rssi;
-      ble_set_target(g_target_id);   // point the BLE scanner at this wearer
 
       // Feed it into the seen-bands table so the WebUI target list shows the
       // vitals right away.
@@ -236,17 +241,7 @@ void setup() {
     Serial.println("[LoRa] Init FAILED");
   }
   
-  // 4. BLE scanner runs continuously in the background on the 2.4 GHz radio,
-  //    independent of LoRa (433 MHz) and coexisting with the WiFi AP. The
-  //    pinpoint mode just reads its smoothed RSSI - no SPI, so LoRa stays up.
-  init_ble_scanner();
-  ble_set_target(g_target_id);
-
-  if (g_mode == MODE_BLE_PINPOINT) {
-    display_uwb_pinpoint(g_target_id, -1.0f, 0.0f);  // radar panel, reused for BLE
-  } else {
-    display_lora_sweep(0, 0, 0, 0); // initial draw
-  }
+  display_lora_sweep(0, 0, 0, 0); // initial draw
 }
 
 void loop() {
@@ -255,48 +250,22 @@ void loop() {
   static uint32_t alive_print_ms = 0;
   if (now - alive_print_ms > 2000) {
       alive_print_ms = now;
-      Serial.printf("[resq_node] Alive. Mode: %s\n", mode_label(g_mode));
+      Serial.println("[resq_node] Alive.");
   }
 
-  // --- Hybrid Polling + Interrupt ---
-  // Process LoRa in EVERY mode. Gating this on LoRa-sweep meant that in
-  // BLE-pinpoint (the boot default) the node silently dropped every packet -
-  // including the dispatch ASSIGNMENT and the band heartbeats that carry the
-  // wearer's live HR, so the vitals panel stayed at "--".
-  // --- Poll LoRa instead of using ISR ---
+  // Poll LoRa (single mode now - LoRa RSSI last-metre; BLE removed).
   int packet_size = LoRa.parsePacket();
   if (packet_size) {
     g_lora_packet_size = packet_size;
     process_lora_packet();
   }
 
-  static uint32_t last_btn_ms = 0;
-  if ((digitalRead(PIN_BTN_MODE) == LOW && now - last_btn_ms > 250) || webui_wants_mode_switch) {
-    if (webui_wants_mode_switch) webui_wants_mode_switch = false;
-    
-    last_btn_ms = now;
-    g_mode = (g_mode == MODE_LORA_SWEEP) ? MODE_BLE_PINPOINT : MODE_LORA_SWEEP;
-    Serial.printf("[Mode] Switched to %s\n", mode_label(g_mode));
-
-    // BLE never touches the SPI bus, so LoRa can stay initialised across the
-    // switch - no sleep / re-init dance needed.
-    if (g_mode == MODE_BLE_PINPOINT) {
-      ble_set_target(g_target_id);
-      display_uwb_pinpoint(g_target_id, -1.0f, 0.0f);
-    } else {
-      display_lora_sweep(g_target_id, g_last_rssi, g_last_hr, g_last_spo2);
-    }
-  }
-
   // Check manual WebUI assignment
   if (webui_wants_target_id != 0) {
     if (g_target_id != webui_wants_target_id) {
       g_target_id = webui_wants_target_id;
-      ble_set_target(g_target_id);
       Serial.printf("[ASSIGNMENT] WebUI assigned band %lu\n", (unsigned long)g_target_id);
-      if (g_mode == MODE_LORA_SWEEP) {
-        display_lora_sweep(g_target_id, g_last_rssi, g_last_hr, g_last_spo2);
-      }
+      display_lora_sweep(g_target_id, g_last_rssi, g_last_hr, g_last_spo2);
       for (int i=0; i<3; i++) {
         digitalWrite(PIN_VIBRATION, HIGH);
         delay(100);
@@ -331,11 +300,9 @@ void loop() {
         digitalWrite(PIN_BUZZER, LOW);
         // Here we would send PKT_FOUND to MainNode via LoRa
         g_target_id = 0; // reset target
-        ble_set_target(0);
         g_last_hr = g_last_spo2 = g_last_batt = g_last_triage = 0;
         btn_found_press_start = 0; // reset hold timer
-        if (g_mode == MODE_LORA_SWEEP) display_lora_sweep(0,0,0,0);
-        else display_uwb_pinpoint(0,0,0);
+        display_lora_sweep(0,0,0,0);
       }
     }
   } else {
@@ -346,26 +313,25 @@ void loop() {
     g_last_tick_ms = now;
     digitalWrite(PIN_LED_STATUS, ((now / 500) & 1) ? HIGH : LOW);
     
-    if (g_mode == MODE_BLE_PINPOINT) {
-      int rssi = 0; uint32_t age = 0;
-      float dist = -1.0f;   // <0 => "Out of Range" on the display
-      if (ble_get_target(&rssi, &age) && age < 3000) {
-        // RSSI -> rough distance (path loss: ref -55 dBm @ 1 m, n = 2.5).
-        // This is a proximity estimate for hot/cold, not a precise range.
-        dist = powf(10.0f, (-55.0f - (float)rssi) / (10.0f * 2.5f));
-        g_last_rssi = (int16_t)rssi;
+    // Estimate range from the target band's most recent HEARTBEAT RSSI.
+    // Heartbeats arrive ~once per 10 s TDMA cycle, so keep a generous
+    // freshness window before declaring it out of range.
+    float dist = -1.0f;   // <0 => "Out of Range" on the display
+    if (g_target_id != 0) {
+      for (size_t i = 0; i < g_seen_count; i++) {
+        if (g_seen_bands[i].id == g_target_id &&
+            (now - g_seen_bands[i].last_seen_ms) < 15000) {
+          dist = rssi_to_distance_m(g_seen_bands[i].rssi);
+          break;
+        }
       }
-      display_uwb_pinpoint(g_target_id, dist, 0.0f);
-      webui_set_target(g_target_id, g_mode, dist, 0.0f);
     }
+
+    webui_set_target(g_target_id, 0, dist, 0.0f);
   }
-  
+
   webui_set_bands(g_seen_bands, g_seen_count);
   webui_set_vitals(g_last_hr, g_last_spo2, g_last_batt, g_last_triage);
-  
-  if (g_mode == MODE_LORA_SWEEP) {
-    webui_set_target(g_target_id, g_mode, -1.0f, 0.0f);
-  }
 
   webui_loop();
 }

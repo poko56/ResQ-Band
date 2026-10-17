@@ -6,4 +6,3 @@
 // remain as inline no-op stubs so existing call sites compile unchanged.
 inline void init_display() {}
 inline void display_lora_sweep(uint32_t /*target_id*/, int16_t /*rssi*/, uint8_t /*hr*/, uint8_t /*spo2*/) {}
-inline void display_uwb_pinpoint(uint32_t /*target_id*/, float /*distance_m*/, float /*angle_deg*/) {}

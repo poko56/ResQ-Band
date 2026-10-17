@@ -17,8 +17,8 @@ void test_display_initialization(void) {
     TEST_ASSERT_TRUE(true);
 }
 
+#ifdef ARDUINO
 void setup() {
-    // Wait for serial monitor to connect
     delay(2000);
     UNITY_BEGIN();
     RUN_TEST(test_display_initialization);
@@ -28,3 +28,10 @@ void setup() {
 void loop() {
     delay(100);
 }
+#else
+int main(int argc, char **argv) {
+    UNITY_BEGIN();
+    RUN_TEST(test_display_initialization);
+    return UNITY_END();
+}
+#endif

@@ -1,16 +1,15 @@
 #include "WebUI.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <LittleFS.h>
 
 static WebServer server(80);
 
 String g_webui_debug = "Boot OK";
-bool webui_wants_mode_switch = false;
 uint32_t webui_wants_target_id = 0;
 
 // State variables for WebUI
 static uint32_t s_target_id = 0;
-static uint8_t  s_mode = 0; // 0=LoRa, 1=UWB
 static float    s_distance_m = -1.0f;
 static float    s_angle_deg = 0.0f;
 static uint8_t  s_v_hr = 0, s_v_spo2 = 0, s_v_batt = 0, s_v_triage = 0;
@@ -26,9 +25,8 @@ void webui_set_bands(SeenBand* bands, size_t count) {
   }
 }
 
-void webui_set_target(uint32_t id, uint8_t mode, float dist, float angle) {
+void webui_set_target(uint32_t id, uint8_t /*mode*/, float dist, float angle) {
   s_target_id = id;
-  s_mode = mode;
   s_distance_m = dist;
   s_angle_deg = angle;
 }
@@ -42,254 +40,270 @@ void webui_set_vitals(uint8_t hr, uint8_t spo2, uint8_t batt, uint8_t triage) {
 
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
-<html>
+<html lang="th">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>ResQ-Locator Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ResQ-Locator</title>
   <style>
-    :root {
-      --bg: #0f172a;
-      --panel-bg: rgba(30, 41, 59, 0.7);
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --success: #10b981;
-      --danger: #ef4444;
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
+    :root{
+      --bg:#1a1a1a; --panel:#252525; --surface:#2d2d2d; --raised:#353535; --active:#404040;
+      --input:#181818; --divider:#0e0e0e; --border:#3a3a3a;
+      --text:#d4d4d4; --dim:#909090; --muted:#6a6a6a;
+      --accent:#5dade2; --accent-hover:#7bbeed; --accent-pressed:#3d8fc4;
+      --green:#5fb878; --yellow:#d4a235; --red:#d04545;
     }
-    body { 
-      background-color: var(--bg); color: var(--text); 
-      font-family: 'Inter', system-ui, sans-serif; 
-      margin: 0; padding: 16px; 
-      overflow-x: hidden;
-    }
-    h1 { margin: 0 0 16px 0; font-size: 24px; color: var(--accent); font-weight: 600; text-align: center; }
-    #debug_msg {
-      text-align: center;
-      color: #888;
-      font-size: 12px;
-      margin-bottom: 16px;
-    }
-    
-    /* Radar */
-    .radar-container { 
-      position: relative; width: 280px; height: 280px; margin: 0 auto 20px; 
-      border-radius: 50%; background: radial-gradient(circle at center, rgba(59,130,246,0.1) 0%, rgba(15,23,42,1) 100%); 
-      border: 2px solid rgba(59,130,246,0.3); overflow: hidden; 
-      box-shadow: 0 0 30px rgba(59,130,246,0.1);
-    }
-    .circle { position: absolute; border: 1px dashed rgba(255,255,255,0.15); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-    .c1 { width: 90px; height: 90px; }
-    .c2 { width: 180px; height: 180px; }
-    .c3 { width: 270px; height: 270px; }
-    .crosshair-h { position: absolute; top: 50%; left: 0; right: 0; height: 1px; background-color: rgba(255,255,255,0.1); }
-    .crosshair-v { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background-color: rgba(255,255,255,0.1); }
-    .pulse { 
-      position: absolute; top: 50%; left: 50%; width: 100%; height: 100%; border-radius: 50%; 
-      border: 2px solid var(--accent); transform: translate(-50%, -50%); 
-      animation: radar-scan 2s linear infinite; box-sizing: border-box; 
-    }
-    @keyframes radar-scan {
-      0% { width: 0; height: 0; opacity: 1; }
-      100% { width: 100%; height: 100%; opacity: 0; }
-    }
-    .blip { 
-      position: absolute; width: 16px; height: 16px; background-color: var(--danger); 
-      border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-      display: none; box-shadow: 0 0 15px var(--danger); transition: all 0.3s ease; 
-    }
-    
-    /* Target Info */
-    .glass-panel {
-      background: var(--panel-bg);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255,255,255,0.05);
-      border-radius: 16px;
-      padding: 16px;
-      margin-bottom: 16px;
-      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-    }
-    .status-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .status-label { color: var(--text-muted); font-size: 14px; }
-    .status-val { font-size: 18px; font-weight: 600; color: var(--accent); }
-    .val-red { color: var(--danger); }
-    
-    .btn { 
-      background-color: var(--accent); color: white; border: none; 
-      padding: 12px; font-size: 16px; font-weight: 600; border-radius: 8px; 
-      cursor: pointer; width: 100%; transition: 0.2s; 
-    }
-    .btn:active { transform: scale(0.98); }
-    .btn.outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
-    
-    /* Band Table */
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th { text-align: left; padding: 8px; color: var(--text-muted); font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    td { padding: 12px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
-    tr:last-child td { border-bottom: none; }
-    .btn-sm { padding: 6px 12px; font-size: 12px; width: auto; background-color: rgba(255,255,255,0.1); color: var(--text); border: none; border-radius: 4px; cursor: pointer; }
-    .btn-sm.active { background-color: var(--success); color: #000; font-weight: 600; }
+    *{box-sizing:border-box;}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans Thai",sans-serif;
+      font-size:13px;-webkit-font-smoothing:antialiased;}
+    .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
+    .wrap{max-width:460px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:8px;}
+
+    /* top bar */
+    .topbar{display:flex;align-items:center;justify-content:space-between;height:34px;
+      padding:0 10px;background:var(--surface);border:1px solid var(--border);}
+    .brand{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);}
+    .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);
+      margin-right:7px;box-shadow:0 0 6px var(--green);vertical-align:middle;}
+    .topstat{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.09em;}
+
+    /* Premiere panel grammar */
+    .panel{background:var(--panel);border:1px solid var(--border);}
+    .panel-header{display:flex;align-items:center;justify-content:space-between;height:26px;
+      padding:0 10px;background:var(--surface);color:var(--dim);border-bottom:1px solid var(--divider);
+      font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;}
+    .panel-header .hval{color:var(--text);font-variant-numeric:tabular-nums;}
+    .panel-body{padding:10px;}
+
+    .row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;}
+    .row .label{color:var(--dim);font-size:12px;}
+    .row .val{font-size:15px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;}
+    .val.accent{color:var(--accent);}
+
+    /* radar (responsive) */
+    .radar{position:relative;width:100%;max-width:260px;aspect-ratio:1/1;margin:4px auto 10px;border-radius:50%;
+      background:radial-gradient(circle at center, rgba(93,173,226,.08) 0%, var(--input) 78%);
+      border:1px solid var(--border);overflow:hidden;}
+    .ring{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+      border:1px dashed rgba(255,255,255,.10);border-radius:50%;}
+    .r1{width:33%;height:33%;} .r2{width:66%;height:66%;} .r3{width:99%;height:99%;}
+    .cross-h{position:absolute;top:50%;left:0;right:0;height:1px;background:rgba(255,255,255,.06);}
+    .cross-v{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(255,255,255,.06);}
+    .sweep{position:absolute;top:50%;left:50%;width:0;height:0;border-radius:50%;
+      border:2px solid var(--accent);transform:translate(-50%,-50%);
+      animation:radar 2.4s linear infinite;box-sizing:border-box;}
+    @keyframes radar{0%{width:0;height:0;opacity:.9}100%{width:99%;height:99%;opacity:0}}
+    .blip{position:absolute;top:50%;left:50%;width:14px;height:14px;border-radius:50%;
+      background:var(--red);transform:translate(-50%,-50%);display:none;
+      box-shadow:0 0 12px var(--red);transition:top .3s ease,left .3s ease;}
+
+    .dist-big{text-align:center;font-size:30px;font-weight:700;color:var(--accent);
+      font-variant-numeric:tabular-nums;line-height:1;}
+    .dist-sub{text-align:center;font-size:10px;color:var(--muted);text-transform:uppercase;
+      letter-spacing:.11em;margin-top:5px;}
+
+    .photo{display:none;width:84px;height:84px;object-fit:cover;border:1px solid var(--border);
+      margin:0 auto 8px;}
+    .med{display:none;font-size:12px;line-height:1.55;padding:8px;background:var(--input);
+      border:1px solid var(--divider);margin-top:8px;}
+
+    .btn{display:inline-flex;align-items:center;justify-content:center;width:100%;height:32px;padding:0 10px;
+      font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;
+      color:var(--text);background:var(--raised);border:1px solid var(--border);border-radius:2px;}
+    .btn:active{background:var(--active);}
+    .btn.accent{background:var(--accent-pressed);border-color:var(--accent-pressed);color:#fff;}
+    .btn.accent:active{background:var(--accent);}
+    .btn-sm{height:24px;padding:0 10px;font-size:10px;font-weight:600;text-transform:uppercase;
+      cursor:pointer;color:var(--text);background:var(--raised);border:1px solid var(--border);border-radius:2px;}
+    .btn-sm.locked{background:var(--green);border-color:var(--green);color:#0e1a12;}
+
+    .tbl-scroll{overflow-x:auto;}
+    table{width:100%;border-collapse:collapse;}
+    th{text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+      color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;}
+    td{padding:8px;font-size:12px;border-bottom:1px solid var(--divider);vertical-align:middle;}
+    tr:last-child td{border-bottom:none;}
+
+    input[type=file]{width:100%;font-size:12px;color:var(--dim);margin:2px 0 8px;}
+    .hint{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;}
+    #debug_msg{font-size:10px;color:var(--muted);text-align:center;word-break:break-all;padding:2px 4px;}
   </style>
 </head>
 <body>
-  <h1>ResQ-Locator Dashboard</h1>
-  <div id="debug_msg">Booting...</div>
-  
-  <div class="radar-container">
-    <div class="circle c1"></div>
-    <div class="circle c2"></div>
-    <div class="circle c3"></div>
-    <div class="crosshair-h"></div>
-    <div class="crosshair-v"></div>
-    <div class="pulse"></div>
-    <div class="blip" id="blip"></div>
-  </div>
-  
-  <div class="glass-panel">
-    <div class="status-row">
-      <span class="status-label">Current Mode:</span>
-      <span class="status-val" id="mode-text">Searching...</span>
+  <div class="wrap">
+    <div class="topbar">
+      <span><span class="dot"></span><span class="brand">ResQ-Locator</span></span>
+      <span class="topstat" id="topstat">Searching…</span>
     </div>
-    <div class="status-row">
-      <span class="status-label">Locked Target:</span>
-      <span class="status-val" id="target-id">None</span>
-    </div>
-    <div class="status-row">
-      <span class="status-label">Distance:</span>
-      <span class="status-val" id="distance">--</span>
-    </div>
-    <button class="btn outline" style="margin-top: 8px;" onclick="switchMode()" id="btn-mode">Switch to BLE Mode</button>
-  </div>
 
-  <div class="glass-panel" id="vitals-panel" style="display:none;">
-    <h3 style="margin: 0 0 8px; font-size: 16px; color: var(--text-muted);">Wearer Vitals</h3>
-    <div class="status-row"><span class="status-label">Heart Rate</span><span class="status-val" id="v-hr">--</span></div>
-    <div class="status-row"><span class="status-label">Triage</span><span class="status-val" id="v-triage">--</span></div>
-  </div>
+    <div class="panel">
+      <div class="panel-header"><span>Target</span><span class="hval" id="target-id">None</span></div>
+      <div class="panel-body">
+        <div class="radar">
+          <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+          <div class="cross-h"></div><div class="cross-v"></div>
+          <div class="sweep"></div><div class="blip" id="blip"></div>
+        </div>
+        <div class="dist-big" id="distance">--</div>
+        <div class="dist-sub">Distance to wearer</div>
+        <div class="med" id="target-medical"></div>
+      </div>
+    </div>
 
-  <div class="glass-panel">
-    <h3 style="margin: 0 0 8px; font-size: 16px; color: var(--text-muted);">Detected Bands</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Band ID</th>
-          <th>Vitals</th>
-          <th>RSSI</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody id="band-list">
-        <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No bands detected</td></tr>
-      </tbody>
-    </table>
+    <div class="panel" id="vitals-panel" style="display:none;">
+      <div class="panel-header"><span>Wearer Vitals</span></div>
+      <div class="panel-body">
+        <img id="target-photo" class="photo" alt="">
+        <div class="row"><span class="label">Heart Rate</span><span class="val accent" id="v-hr">--</span></div>
+        <div class="row"><span class="label">Triage</span><span class="val" id="v-triage">--</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><span>Detected Bands</span><span class="hval" id="band-count">0</span></div>
+      <div class="panel-body" style="padding:0;">
+        <div class="tbl-scroll">
+          <table>
+            <thead><tr><th>Band</th><th>HR</th><th>RSSI</th><th></th></tr></thead>
+            <tbody id="band-list">
+              <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px;">No bands detected</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><span>Roster Sync · Offline</span><span class="hval" id="roster-count">--</span></div>
+      <div class="panel-body">
+        <input type="file" id="roster-file" accept=".json,application/json">
+        <button class="btn accent" onclick="uploadRoster()">Upload roster.json</button>
+        <div class="hint" id="roster-status">Export จากเว็บ dispatcher แล้วเลือกไฟล์ roster.json ที่นี่</div>
+      </div>
+    </div>
+
+    <div id="debug_msg">Booting…</div>
   </div>
 
   <script>
-    let currentMode = 0;
-    
-    function assignTarget(id) {
-      fetch('/api/assign?id=' + id, { method: 'POST' })
-        .then(res => res.json())
-        .then(data => updateData())
-        .catch(err => console.error(err));
-    }
-    
-    function switchMode() {
-      fetch('/api/switch_mode', { method: 'POST' })
-        .then(res => res.json())
-        .then(data => updateData())
-        .catch(err => console.error(err));
-    }
-    
-    function updateData() {
-      fetch('/api/data')
-        .then(res => res.json())
-        .then(data => {
-          document.getElementById('debug_msg').innerText = data.debug || "";
-          currentMode = data.mode;
-          document.getElementById('mode-text').innerText = (data.mode === 0 ? 'LoRa Sweep' : 'BLE Pinpoint');
-          document.getElementById('btn-mode').innerText = (data.mode === 0 ? 'Switch to BLE Mode' : 'Switch to LoRa Mode');
-          
-          if (data.target_id === 0) {
-            document.getElementById('target-id').innerText = 'None';
-            document.getElementById('distance').innerText = '--';
-            document.getElementById('blip').style.display = 'none';
-            document.getElementById('vitals-panel').style.display = 'none';
-          } else {
-            document.getElementById('target-id').innerText = data.target_id.toString(16).toUpperCase();
+    let rosterCache = {};
 
-            // Wearer vitals panel (from dispatch or LoRa heartbeat)
-            document.getElementById('vitals-panel').style.display = 'block';
-            document.getElementById('v-hr').innerText   = (data.hr > 0 ? data.hr + ' bpm' : '--');
-            const tlab = ['SAFE','WATCH','CRITICAL','DECEASED'][data.triage] || '--';
-            const tcol = ['#10b981','#eab308','#ef4444','#94a3b8'][data.triage] || '#94a3b8';
-            const vt = document.getElementById('v-triage');
-            vt.innerText = tlab; vt.style.color = tcol;
-            
-            // Find target in bands to get its RSSI
-            let targetBand = data.bands.find(b => b.id === data.target_id);
-            let trssi = targetBand ? targetBand.rssi : -100;
-            
-            let dist_px = 0;
-            let show_blip = true;
-
-            if (data.mode === 0) {
-              // LoRa sweep: only estimate distance when we actually have this
-              // target's RSSI. Without it, the path-loss formula fed -100 dBm
-              // spits out a meaningless ~158 m, so show "No Signal" instead.
-              if (!targetBand) {
-                document.getElementById('distance').innerText = 'No Signal';
-                show_blip = false;
-              } else {
-                let est_dist = Math.pow(10, (-45 - trssi) / 25.0);
-                document.getElementById('distance').innerText = '~' + est_dist.toFixed(1) + ' m';
-                dist_px = Math.min(140, (est_dist / 100.0) * 140.0);
-              }
-            } else {
-              if (data.distance_m < 0) {
-                document.getElementById('distance').innerText = 'Out of Range';
-                show_blip = false;
-              } else {
-                document.getElementById('distance').innerText = data.distance_m.toFixed(2) + ' m';
-                dist_px = Math.min(140, (data.distance_m / 20.0) * 140.0);
-              }
-            }
-            
-            let blip = document.getElementById('blip');
-            if (show_blip) {
-              blip.style.display = 'block';
-              let angle = data.mode === 0 ? 0 : data.angle_deg;
-              let rad = (angle - 90) * (Math.PI / 180);
-              let cx = 140 + dist_px * Math.cos(rad); // 140 is radius
-              let cy = 140 + dist_px * Math.sin(rad);
-              blip.style.left = cx + 'px';
-              blip.style.top = cy + 'px';
-            } else {
-              blip.style.display = 'none';
-            }
-          }
-          
-          // Render Band List
-          let tbody = document.getElementById('band-list');
-          if (data.bands.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No bands detected</td></tr>';
-          } else {
-            tbody.innerHTML = data.bands.map(b => {
-              let isLocked = (b.id === data.target_id);
-              let btnHtml = isLocked 
-                ? '<button class="btn-sm active">Locked</button>'
-                : '<button class="btn-sm" onclick="assignTarget('+b.id+')">Assign</button>';
-              let vitals = '<span style="color:var(--danger)">\u2665</span>' + (b.hr||'--');
-              return '<tr><td>'+b.id.toString(16).toUpperCase()+'</td><td>'+vitals+'</td><td>'+b.rssi+'</td><td>'+btnHtml+'</td></tr>';
-            }).join('');
-          }
-        })
-        .catch(err => console.error(err));
+    function loadRoster(){
+      return fetch('/api/roster').then(r=>r.json()).then(data=>{
+        rosterCache = data || {};
+        document.getElementById('roster-count').innerText = Object.keys(rosterCache).length + ' คน';
+      }).catch(()=>{ document.getElementById('roster-count').innerText = '0 คน'; });
     }
-    
+    loadRoster();
+
+    // Upload roster.json exported from the dispatcher. Same-origin http POST, so
+    // no mixed-content/CORS block. Multipart so the ESP32 streams it to flash.
+    function uploadRoster(){
+      const st = document.getElementById('roster-status');
+      const f = document.getElementById('roster-file').files[0];
+      if(!f){ st.innerText='เลือกไฟล์ roster.json ก่อน'; return; }
+      st.innerText='กำลังอัปโหลด…';
+      const r = new FileReader();
+      r.onload = function(){
+        try{ JSON.parse(r.result); }catch(e){ st.innerText='ไฟล์ไม่ใช่ JSON ที่ถูกต้อง'; return; }
+        const fd = new FormData();
+        fd.append('file', f, 'roster.json');
+        fetch('/api/roster', { method:'POST', body:fd })
+          .then(res=>res.json())
+          .then(d=>{ st.innerText = d.success ? ('✅ บันทึกแล้ว '+Math.round((d.bytes||0)/1024)+' KB (ออฟไลน์ได้)') : 'ล้มเหลว'; return loadRoster(); })
+          .catch(e=>{ st.innerText='ล้มเหลว: '+e; });
+      };
+      r.readAsText(f);
+    }
+
+    function assignTarget(id){
+      fetch('/api/assign?id='+id, { method:'POST' }).then(r=>r.json()).then(()=>updateData()).catch(e=>console.error(e));
+    }
+
+    const TRIAGE_LABEL = ['SAFE','WATCH','CRITICAL','DECEASED'];
+    const TRIAGE_COLOR = ['#5fb878','#d4a235','#d04545','#909090'];
+
+    function updateData(){
+      fetch('/api/data').then(r=>r.json()).then(data=>{
+        document.getElementById('debug_msg').innerText = data.debug || '';
+        const bands = data.bands || [];
+        document.getElementById('band-count').innerText = bands.length;
+
+        if(!data.target_id || data.target_id === 0){
+          document.getElementById('target-id').innerText = 'None';
+          document.getElementById('topstat').innerText = 'Searching…';
+          document.getElementById('target-medical').style.display = 'none';
+          document.getElementById('distance').innerText = '--';
+          document.getElementById('blip').style.display = 'none';
+          document.getElementById('vitals-panel').style.display = 'none';
+        } else {
+          const hexId = data.target_id.toString(16).toUpperCase().padStart(8,'0');
+          const pInfo = rosterCache[hexId];
+          document.getElementById('target-id').innerText = pInfo ? pInfo.name : hexId;
+          document.getElementById('topstat').innerText = 'Locked';
+
+          const ph = document.getElementById('target-photo');
+          if(pInfo && pInfo.photo){ ph.src = pInfo.photo; ph.style.display='block'; } else { ph.style.display='none'; }
+
+          let medHtml = '';
+          if(pInfo){
+            if(pInfo.age) medHtml += 'Age '+pInfo.age;
+            if(pInfo.medical && pInfo.medical.bloodType) medHtml += ' · Blood <b style="color:var(--red)">'+pInfo.medical.bloodType+'</b>';
+            if(pInfo.medical && pInfo.medical.conditions && pInfo.medical.conditions.length)
+              medHtml += '<div style="margin-top:4px"><span style="color:var(--red)">Cond:</span> '+pInfo.medical.conditions.join(', ')+'</div>';
+            if(pInfo.medical && pInfo.medical.allergies && pInfo.medical.allergies.length)
+              medHtml += '<div style="margin-top:4px"><span style="color:var(--yellow)">Allergy:</span> '+pInfo.medical.allergies.join(', ')+'</div>';
+          }
+          const md = document.getElementById('target-medical');
+          if(medHtml){ md.innerHTML = medHtml; md.style.display='block'; } else { md.style.display='none'; }
+
+          document.getElementById('vitals-panel').style.display = 'block';
+          document.getElementById('v-hr').innerText = (data.hr>0 ? data.hr+' bpm' : '--');
+          const vt = document.getElementById('v-triage');
+          vt.innerText = TRIAGE_LABEL[data.triage] || '--';
+          vt.style.color = TRIAGE_COLOR[data.triage] || '#909090';
+
+          // Distance comes from the firmware (RSSI path-loss estimate). <0 = no signal.
+          const d = data.distance_m;
+          const blip = document.getElementById('blip');
+          if(typeof d === 'number' && d >= 0){
+            document.getElementById('distance').innerText = d.toFixed(1)+' m';
+            const R = (document.querySelector('.radar').clientWidth || 240) / 2;
+            const px = Math.min(R-9, (d/20.0)*(R-9));   // 20 m spans the radar
+            blip.style.display = 'block';
+            blip.style.left = R + 'px';
+            blip.style.top  = (R - px) + 'px';          // farther => nearer the edge
+          } else {
+            document.getElementById('distance').innerText = 'No Signal';
+            blip.style.display = 'none';
+          }
+        }
+
+        const tbody = document.getElementById('band-list');
+        if(bands.length === 0){
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px;">No bands detected</td></tr>';
+        } else {
+          tbody.innerHTML = bands.map(b=>{
+            const locked = (b.id === data.target_id);
+            const btn = locked ? '<button class="btn-sm locked">Locked</button>'
+                               : '<button class="btn-sm" onclick="assignTarget('+b.id+')">Assign</button>';
+            const hexId = b.id.toString(16).toUpperCase().padStart(8,'0');
+            const pInfo = rosterCache[hexId];
+            const nm = pInfo ? ('<span style="font-weight:600">'+pInfo.name+'</span><br><span style="font-size:10px;color:var(--muted)">'+hexId+'</span>')
+                             : '<span class="mono">'+hexId+'</span>';
+            let badge = '';
+            if(pInfo && pInfo.medical && pInfo.medical.conditions && pInfo.medical.conditions.length)
+              badge = '<span style="display:inline-block;margin-top:3px;padding:1px 4px;font-size:9px;background:rgba(208,69,69,.2);color:var(--red);">'+pInfo.medical.conditions[0]+'</span>';
+            const hr = '<span style="color:var(--red)">&#9829;</span> '+(b.hr||'--');
+            return '<tr><td>'+nm+badge+'</td><td>'+hr+'</td><td class="mono">'+b.rssi+'</td><td>'+btn+'</td></tr>';
+          }).join('');
+        }
+      }).catch(e=>console.error(e));
+    }
+
     setInterval(updateData, 500);
-    updateData(); // initial call
+    updateData();
   </script>
 </body>
 </html>
@@ -301,7 +315,6 @@ void handleRoot() {
 
 void handleApiData() {
   String json = "{";
-  json += "\"mode\":" + String(s_mode) + ",";
   json += "\"target_id\":" + String(s_target_id) + ",";
   json += "\"distance_m\":" + String(s_distance_m) + ",";
   json += "\"angle_deg\":" + String(s_angle_deg) + ",";
@@ -343,17 +356,61 @@ void handleAssign() {
   server.send(200, "application/json", "{\"success\":true}");
 }
 
-void handleSwitchMode() {
-  webui_wants_mode_switch = true;
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "application/json", "{\"success\":true}");
-}
-
 void handleOptions() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.sendHeader("Access-Control-Allow-Private-Network", "true");
   server.send(204);
+}
+
+void handleRosterGet() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Private-Network", "true");
+  if (!LittleFS.exists("/roster.json")) {
+    server.send(200, "application/json", "{}");
+    return;
+  }
+  File f = LittleFS.open("/roster.json", "r");
+  server.streamFile(f, "application/json");
+  f.close();
+}
+
+// Roster upload is streamed straight to LittleFS. Buffering the whole body in
+// RAM (server.arg("plain")) worked for a names-only roster but blows up once
+// survivor photos are included - the ESP32 only has ~320 KB with WiFi + BLE
+// already resident.
+static File s_rosterUpload;
+static size_t s_rosterBytes = 0;
+
+void handleRosterUpload() {
+  HTTPUpload& up = server.upload();
+  if (up.status == UPLOAD_FILE_START) {
+    s_rosterBytes = 0;
+    s_rosterUpload = LittleFS.open("/roster.json.part", "w");
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    if (s_rosterUpload) {
+      s_rosterUpload.write(up.buf, up.currentSize);
+      s_rosterBytes += up.currentSize;
+    }
+  } else if (up.status == UPLOAD_FILE_END) {
+    if (s_rosterUpload) s_rosterUpload.close();
+    // Only swap in the new roster once it is fully written, so a dropped
+    // upload can't leave a half-parsed file behind.
+    LittleFS.remove("/roster.json");
+    LittleFS.rename("/roster.json.part", "/roster.json");
+    Serial.printf("[WebUI] roster uploaded: %u bytes\n", (unsigned)s_rosterBytes);
+  } else if (up.status == UPLOAD_FILE_ABORTED) {
+    if (s_rosterUpload) s_rosterUpload.close();
+    LittleFS.remove("/roster.json.part");
+  }
+}
+
+void handleRosterPostDone() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Private-Network", "true");
+  String r = "{\"success\":true,\"bytes\":" + String(s_rosterBytes) + "}";
+  server.send(200, "application/json", r);
 }
 
 void init_web_ui() {
@@ -370,8 +427,13 @@ void init_web_ui() {
   server.on("/api/data", HTTP_OPTIONS, handleOptions);
   server.on("/api/assign", HTTP_POST, handleAssign);
   server.on("/api/assign", HTTP_OPTIONS, handleOptions);
-  server.on("/api/switch_mode", HTTP_POST, handleSwitchMode);
-  server.on("/api/switch_mode", HTTP_OPTIONS, handleOptions);
+  
+  server.on("/api/roster", HTTP_GET, handleRosterGet);
+  server.on("/api/roster", HTTP_POST, handleRosterPostDone, handleRosterUpload);
+  server.on("/api/roster", HTTP_OPTIONS, handleOptions);
+  
+  LittleFS.begin(true);
+  
   server.begin();
   Serial.println("[WebUI] HTTP server started");
 }
