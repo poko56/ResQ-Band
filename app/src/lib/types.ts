@@ -312,6 +312,7 @@ export type HubCommand =
   | { c: "mark_rescued"; band: string }
   | { c: "clear_alarm" }
   | { c: "set_mute"; muted: boolean }
+  | { c: "buzz_test" }
   | { c: "ping" }
   | { c: "ota_check" }
   | { c: "ota_install" }

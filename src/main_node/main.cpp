@@ -414,8 +414,51 @@ static void set_buzzer_muted(bool muted) {
   send_buzzer_state();
 }
 
+// Test sound (web "ทดสอบเสียง" button / buzz_test command). Runs from loop()
+// without blocking so LoRa keeps receiving, and plays even when muted:
+//   0.0-1.5 s  2.5 kHz tone  -> heard on a passive piezo
+//   2.0-3.5 s  steady DC     -> heard on an active buzzer
+// Hearing neither means a wiring fault (pin 17 / GND).
+static uint32_t g_buzz_test_start_ms = 0;   // 0 = not running
+
+static void start_buzz_test() { g_buzz_test_start_ms = millis() | 1; }
+
+// Returns true while the test owns the buzzer.
+static bool update_buzz_test(uint32_t now) {
+  if (g_buzz_test_start_ms == 0) return false;
+  const uint32_t t = now - g_buzz_test_start_ms;
+#if BUZZER_PASSIVE
+  static bool s_dc = false;   // pin temporarily detached from LEDC for the DC phase
+  if (t < 1500) {
+    buzzer_tone(2500);
+  } else if (t < 2000) {
+    buzzer_tone(0);
+  } else if (t < 3500) {
+    if (!s_dc) {
+      s_dc = true;
+      ledcDetachPin(PIN_BUZZER);
+      pinMode(PIN_BUZZER, OUTPUT);
+      digitalWrite(PIN_BUZZER, HIGH);
+    }
+  } else {
+    if (s_dc) {
+      s_dc = false;
+      digitalWrite(PIN_BUZZER, LOW);
+      ledcAttachPin(PIN_BUZZER, BUZZER_LEDC_CH);
+    }
+    buzzer_tone(0);
+    g_buzz_test_start_ms = 0;
+  }
+#else
+  if (t < 1500) buzzer_tone(1);
+  else { buzzer_tone(0); g_buzz_test_start_ms = 0; }
+#endif
+  return true;
+}
+
 // Siren while the local alarm is active and not muted.
 static void update_alarm_buzzer(uint32_t now) {
+  if (update_buzz_test(now)) return;
   if (!g_local_alarm_active || g_buzzer_muted) { buzzer_tone(0); return; }
 #if BUZZER_PASSIVE
   buzzer_tone(((now / 250) & 1) ? 2800 : 2000);   // two-tone siren
@@ -847,6 +890,10 @@ static void handle_serial_command(const char* line, size_t len) {
   else if (!strcmp(cmd, "set_mute")) {
     set_buzzer_muted(doc["muted"] | false);
     JsonDocument r; r["t"] = "ack"; r["c"] = "set_mute"; send_json_event(r);
+  }
+  else if (!strcmp(cmd, "buzz_test")) {
+    start_buzz_test();
+    JsonDocument r; r["t"] = "ack"; r["c"] = "buzz_test"; r["pin"] = PIN_BUZZER; send_json_event(r);
   }
   else if (!strcmp(cmd, "clear_alarm")) {
     g_local_alarm_active = false;

@@ -117,6 +117,7 @@ export function HubStatusBanner() {
 
       {/* Right: controls */}
       <div className="flex items-stretch border-l border-app-divider">
+        {hub.state === "connected" && hub.buzzerMuted !== undefined && <BuzzTestButton />}
         {hub.state === "connected" && hub.buzzerMuted !== undefined && (
           <button
             onClick={() => void sendCommand({ c: "set_mute", muted: !hub.buzzerMuted })}
@@ -153,6 +154,28 @@ export function HubStatusBanner() {
         )}
       </div>
     </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Plays MainNode's buzzer test (works even when muted): 1.5 s tone, then
+// 1.5 s steady DC, so the operator can check the buzzer and its wiring.
+// ----------------------------------------------------------------------------
+function BuzzTestButton() {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        void sendCommand({ c: "buzz_test" });
+        setPlaying(true);
+        setTimeout(() => setPlaying(false), 3600);
+      }}
+      disabled={playing}
+      title="เล่นเสียงทดสอบที่ MainNode: ความถี่ 1.5 วิ (passive) แล้วไฟตรง 1.5 วิ (active) - ไม่ได้ยินเลย = เช็กสายขา 17 / GND"
+      className="px-3 text-2xs tracking-wider uppercase border-r border-app-divider text-app-dim hover:text-app-text hover:bg-app-raised disabled:opacity-60"
+    >
+      {playing ? "🔊 กำลังเล่น…" : "🔊 ทดสอบเสียง"}
+    </button>
   );
 }
 
