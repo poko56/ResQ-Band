@@ -17,6 +17,7 @@ import {
   uptimePct,
 } from "@/lib/activity";
 import type { NodeActivity, NodeKind } from "@/lib/types";
+import { TrendChart } from "./TrendChart";
 
 const KIND_ORDER: NodeKind[] = ["hub", "pin", "band", "resq"];
 const KIND_LABEL: Record<NodeKind, string> = {
@@ -122,10 +123,10 @@ export function NodeOverview() {
 
       <div className="panel p-3">
         <div className="panel-header -mx-3 -mt-3 mb-3 justify-between">
-          <span>ปริมาณข้อมูลต่อนาที (แพ็กเก็ตที่ได้รับ / หลุด)</span>
+          <span>กราฟเส้น: ปริมาณข้อมูลและการหลุดต่อนาที</span>
           <span className="font-mono text-2xs text-app-dim">รวมทุกอุปกรณ์ · {windowMin} นาทีล่าสุด</span>
         </div>
-        {nodes.length === 0 ? <EmptyState /> : <TrafficChart nodes={nodes} now={now} windowMin={windowMin} />}
+        {nodes.length === 0 ? <EmptyState /> : <TrendChart nodes={nodes} now={now} windowMin={windowMin} />}
       </div>
 
       <div className="panel p-3">
@@ -273,75 +274,6 @@ function TimelineLegend() {
           {label}
         </span>
       ))}
-    </div>
-  );
-}
-
-// ----------------------------------------------------------------------------
-// Traffic per minute - stacked received / lost bars
-// ----------------------------------------------------------------------------
-function TrafficChart({ nodes, now, windowMin }: { nodes: NodeActivity[]; now: number; windowMin: number }) {
-  const minutes = useMemo(() => {
-    const currentMin = now - (now % 60_000);
-    const rows = Array.from({ length: windowMin }, (_, i) => ({
-      t: currentMin - (windowMin - 1 - i) * 60_000, rx: 0, lost: 0, bytes: 0,
-    }));
-    const first = rows[0].t;
-    for (const n of nodes) {
-      for (const b of n.buckets) {
-        const idx = Math.floor((b.t - first) / 60_000);
-        if (idx < 0 || idx >= rows.length) continue;
-        rows[idx].rx += b.rx;
-        rows[idx].lost += b.lost;
-        rows[idx].bytes += b.bytes;
-      }
-    }
-    return rows;
-  }, [nodes, now, windowMin]);
-
-  const max = Math.max(1, ...minutes.map((m) => m.rx + m.lost));
-  const H = 100;
-  const bw = 100 / minutes.length;
-
-  return (
-    <div>
-      <div className="flex gap-2">
-        <div className="flex h-32 w-8 flex-col justify-between text-right font-mono text-3xs text-app-dim">
-          <span>{max}</span>
-          <span>{Math.round(max / 2)}</span>
-          <span>0</span>
-        </div>
-        <svg className="h-32 flex-1" viewBox={`0 0 100 ${H}`} preserveAspectRatio="none" role="img" aria-label="แพ็กเก็ตต่อนาที">
-          {[0.5, 1].map((f) => (
-            <line key={f} x1={0} x2={100} y1={H - f * H} y2={H - f * H} stroke="#334155" strokeWidth={0.3} strokeDasharray="1 1" vectorEffect="non-scaling-stroke" />
-          ))}
-          {minutes.map((m, i) => {
-            const rxH = (m.rx / max) * H;
-            const lostH = (m.lost / max) * H;
-            const x = i * bw + bw * 0.15;
-            const w = bw * 0.7;
-            return (
-              <g key={m.t}>
-                <rect x={x} y={H - rxH} width={w} height={rxH} fill="#10b981" />
-                <rect x={x} y={H - rxH - lostH} width={w} height={lostH} fill="#f43f5e" />
-                <rect x={i * bw} y={0} width={bw} height={H} fill="transparent">
-                  <title>
-                    {new Date(m.t).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} · ได้รับ {m.rx} · หลุด {m.lost} · {formatBytes(m.bytes)}
-                  </title>
-                </rect>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      <div className="mt-1 flex justify-between pl-10 font-mono text-3xs text-app-dim">
-        <span>-{windowMin} นาที</span>
-        <span>ตอนนี้</span>
-      </div>
-      <div className="mt-2 flex gap-4 border-t border-app-divider pt-2 text-2xs text-app-muted">
-        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-xs bg-emerald-500" />ได้รับ</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-xs bg-rose-500" />หลุด (seq ข้าม / รายงานหาย / MainNode drop)</span>
-      </div>
     </div>
   );
 }
