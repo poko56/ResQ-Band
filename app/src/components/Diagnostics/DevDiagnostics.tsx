@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useResQ } from "@/lib/store";
 import { NodeOverview } from "./NodeOverview";
 import type { BandLinkDiagnostic, DisconnectEvent } from "@/lib/types";
@@ -49,6 +49,18 @@ export function DevDiagnostics() {
     seq?: number;
     lost?: number;
   } | null>(null);
+
+  // Draw the SVG at its real pixel width so markers stay round and text
+  // isn't stretched.
+  const plotRef = useRef<HTMLDivElement>(null);
+  const [plotW, setPlotW] = useState(1000);
+  useEffect(() => {
+    const el = plotRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setPlotW(Math.max(200, Math.round(e.contentRect.width))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const bandList = useMemo(() => {
     const list = Object.values(wristbands);
@@ -379,8 +391,15 @@ export function DevDiagnostics() {
             </div>
           </div>
 
-          {/* SVG Graph View */}
-          <div className="relative mt-3 h-64 w-full bg-[#141414] border border-app-border rounded-sm overflow-hidden">
+          {/* SVG Graph View: axes sit in their own gutters outside the plot */}
+          <div className="mt-3 flex">
+          <div className="flex h-64 w-[4.5rem] shrink-0 flex-col justify-between whitespace-nowrap pr-2 text-right font-mono text-3xs text-app-muted">
+            <span className="-translate-y-0.5">{yRange.max} {yRange.unit}</span>
+            <span>{Math.round((yRange.max + yRange.min) / 2)} {yRange.unit}</span>
+            <span className="translate-y-0.5">{yRange.min} {yRange.unit}</span>
+          </div>
+          <div className="min-w-0 flex-1">
+          <div ref={plotRef} className="relative h-64 w-full bg-[#141414] border border-app-border rounded-sm overflow-hidden">
             {/* Sensitivity Margin Zones (Background Gradients) */}
             {metricView === "rssi" && (
               <>
@@ -388,7 +407,7 @@ export function DevDiagnostics() {
                   className="absolute left-0 right-0 top-0 border-b border-dashed border-emerald-900/40 bg-emerald-950/10 pointer-events-none"
                   style={{ height: `${valToSvgY(-75, 256)}px` }}
                 >
-                  <span className="absolute top-1 right-2 text-3xs font-mono text-emerald-600/70">
+                  <span className="absolute top-1 left-2 text-3xs font-mono text-emerald-600/70">
                     EXCELLENT (&gt; -75 dBm)
                   </span>
                 </div>
@@ -399,7 +418,7 @@ export function DevDiagnostics() {
                     height: `${valToSvgY(-105, 256) - valToSvgY(-75, 256)}px`,
                   }}
                 >
-                  <span className="absolute top-1 right-2 text-3xs font-mono text-amber-600/70">
+                  <span className="absolute top-1 left-2 text-3xs font-mono text-amber-600/70">
                     ACCEPTABLE (-75 ~ -105 dBm)
                   </span>
                 </div>
@@ -407,34 +426,17 @@ export function DevDiagnostics() {
                   className="absolute left-0 right-0 bottom-0 bg-rose-950/15 pointer-events-none"
                   style={{ height: `${256 - valToSvgY(-105, 256)}px` }}
                 >
-                  <span className="absolute bottom-1 right-2 text-3xs font-mono text-rose-500/70">
+                  <span className="absolute top-1 left-2 text-3xs font-mono text-rose-500/70">
                     CRITICAL MARGIN (&lt; -105 dBm / DROPOUT RISK)
                   </span>
                 </div>
               </>
             )}
 
-            {/* Y-axis Labels */}
-            <div className="absolute left-2 top-2 bottom-2 flex flex-col justify-between pointer-events-none font-mono text-3xs text-app-muted z-10">
-              <span>{yRange.max} {yRange.unit}</span>
-              <span>{Math.round((yRange.max + yRange.min) / 2)} {yRange.unit}</span>
-              <span>{yRange.min} {yRange.unit}</span>
-            </div>
-
-            {/* X-axis Labels */}
-            <div className="absolute left-10 right-2 bottom-1 flex justify-between pointer-events-none font-mono text-3xs text-app-muted z-10">
-              <span>-60s</span>
-              <span>-45s</span>
-              <span>-30s</span>
-              <span>-15s</span>
-              <span>ตอนนี้ (0s)</span>
-            </div>
-
             {/* Main Interactive SVG */}
             <svg
               className="absolute inset-0 h-full w-full"
-              viewBox="0 0 1000 256"
-              preserveAspectRatio="none"
+              viewBox={`0 0 ${plotW} 256`}
               onMouseLeave={() => setHoveredPoint(null)}
             >
               {/* Horizontal Grid Lines */}
@@ -445,7 +447,7 @@ export function DevDiagnostics() {
                     key={ratio}
                     x1="0"
                     y1={y}
-                    x2="1000"
+                    x2={plotW}
                     y2={y}
                     stroke="#262626"
                     strokeWidth="1"
@@ -459,7 +461,7 @@ export function DevDiagnostics() {
                 if (s.points.length < 2) return null;
                 const pathStr = s.points
                   .map((p, idx) => {
-                    const svgX = (p.x / 100) * 1000;
+                    const svgX = (p.x / 100) * plotW;
                     const svgY = valToSvgY(p.y, 256);
                     return `${idx === 0 ? "M" : "L"} ${svgX.toFixed(1)} ${svgY.toFixed(1)}`;
                   })
@@ -478,7 +480,7 @@ export function DevDiagnostics() {
 
                     {/* Individual points on line */}
                     {s.points.map((p, idx) => {
-                      const svgX = (p.x / 100) * 1000;
+                      const svgX = (p.x / 100) * plotW;
                       const svgY = valToSvgY(p.y, 256);
                       return (
                         <circle
@@ -506,7 +508,7 @@ export function DevDiagnostics() {
 
                     {/* Red Flash Dropped-Packet Markers */}
                     {s.drops.map((d, dIdx) => {
-                      const svgX = (d.x / 100) * 1000;
+                      const svgX = (d.x / 100) * plotW;
                       return (
                         <g key={`drop-${dIdx}`}>
                           <line
@@ -579,6 +581,15 @@ export function DevDiagnostics() {
                 </span>
               </div>
             )}
+          </div>
+          <div className="mt-1 flex justify-between font-mono text-3xs text-app-muted">
+            <span>-60s</span>
+            <span>-45s</span>
+            <span>-30s</span>
+            <span>-15s</span>
+            <span>ตอนนี้</span>
+          </div>
+          </div>
           </div>
 
           {/* Graph Legend & Drop Indicator Explanation */}
