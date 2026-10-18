@@ -280,28 +280,36 @@ void setup() {
   pinMode(PIN_LED_STATUS, OUTPUT);
   digitalWrite(PIN_LED_STATUS, LOW);
 
-  // Hardcode known MAC addresses to specific IDs and Slots to prevent ANY collision and skip assignment
-  uint64_t mac = ESP.getEfuseMac();
-  uint32_t mac_lower = (uint32_t)(mac & 0xFFFFFFFF);
-  
-  if (mac_lower == 0x8a2b1838) {       // Pillar 1 (MAC: 38:18:2b:8a:90:88)
-    g_device_id = 0xAAAA0001;
-    g_pin_index = 0; // Slot 1
-  } else if (mac_lower == 0x8b2b1838) { // Pillar 2 (MAC: 38:18:2b:8b:b8:3c)
-    g_device_id = 0xAAAA0002;
-    g_pin_index = 1; // Slot 2
-  } else if (mac_lower == 0xfddd2568) { // Pillar 3 (Old MAC: 68:25:dd:fd:11:f8)
-    g_device_id = 0xAAAA0003;
-    g_pin_index = 2; // Slot 3
-  } else if (mac_lower == 0x34124b00) { // Pillar 4 (MAC: 00:4b:12:34:da:a4)
-    g_device_id = 0xAAAA0004;
-    g_pin_index = 3; // Slot 4
-  } else {
-    // Fallback for any other new boards
-    g_device_id = mac_lower;
+  // Known pillars, matched on the FULL 6-byte MAC. (Matching only the first
+  // 4 bytes made boards from one batch collide: they share 38:18:2b:8x.)
+  struct KnownPillar { uint8_t mac[6]; uint8_t pin_index; };
+  static const KnownPillar KNOWN_PILLARS[] = {
+    {{0x38, 0x18, 0x2b, 0x8a, 0x90, 0x88}, 0},   // Pillar 1
+    {{0x38, 0x18, 0x2b, 0x8b, 0x24, 0x48}, 1},   // Pillar 2 (replacement board)
+    {{0x68, 0x25, 0xdd, 0xfd, 0x11, 0xf8}, 2},   // Pillar 3
+    {{0x00, 0x4b, 0x12, 0x34, 0xda, 0xa4}, 3},   // Pillar 4
+  };
+  // getEfuseMac() packs the MAC little-endian: byte 0 of the MAC is the LSB.
+  const uint64_t efuse = ESP.getEfuseMac();
+  uint8_t mac[6];
+  for (int i = 0; i < 6; ++i) mac[i] = (uint8_t)(efuse >> (8 * i));
+
+  g_pin_index = 255;
+  for (const auto& k : KNOWN_PILLARS) {
+    if (memcmp(k.mac, mac, 6) == 0) {
+      g_pin_index = k.pin_index;
+      g_device_id = 0xAAAA0001 + k.pin_index;   // AAAA0001..AAAA0004
+      break;
+    }
+  }
+  if (g_pin_index == 255) {
+    // Unknown board: ID from the MAC's unique tail, slot from NVS (assigned
+    // from the dispatcher's Anchors page) or unassigned until then.
+    g_device_id = (uint32_t)(efuse >> 16);
     g_prefs.begin("resq", false);
     g_pin_index = g_prefs.getUChar("pin_idx", 255);
   }
+  Serial.printf("MAC=%02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
   Serial.println();
   Serial.printf("== %s fw=%s ==\n", BOARD_NAME, FW_VERSION);
