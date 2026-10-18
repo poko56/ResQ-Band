@@ -260,6 +260,7 @@ function dispatchHubEvent(ev: HubEvent): void {
       break;
 
     case "beacon":
+      s.recordActivity({ key: "hub", kind: "hub", label: "MainNode", type: "BEACON" });
       s.setHubInfo({ cycleId: ev.cycle, emergencyMode: (ev.flags & 0x01) !== 0 });
       break;
 
@@ -274,10 +275,12 @@ function dispatchHubEvent(ev: HubEvent): void {
       break;
 
     case "assignment":
+      s.recordActivity({ key: "hub", kind: "hub", label: "MainNode", type: "ASSIGNMENT" });
       s.applyAssignment(ev);
       break;
 
     case "found":
+      s.recordActivity({ key: `resq:${ev.node_id}`, kind: "resq", label: `ResQ-Node ${ev.node_id}`, type: "FOUND" });
       s.applyFound(ev);
       break;
 
@@ -297,7 +300,13 @@ function dispatchHubEvent(ev: HubEvent): void {
       stopBootPolling();
       break;
 
-    case "ring_ack":
+    case "ring_ack": {
+      const id = ev.band.toUpperCase();
+      const name = s.wristbands[id]?.name;
+      s.recordActivity({ key: `band:${id}`, kind: "band", label: name ? `${name} (${id})` : `Band ${id}`, type: "RING_ACK" });
+      break;
+    }
+
     case "ack":
       // diagnostic - nothing to do for now
       break;

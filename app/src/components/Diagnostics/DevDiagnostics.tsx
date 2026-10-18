@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useResQ } from "@/lib/store";
+import { NodeOverview } from "./NodeOverview";
 import type { BandLinkDiagnostic, DisconnectEvent } from "@/lib/types";
 
 // Signal color palette for lines & badges
@@ -35,12 +36,11 @@ export function DevDiagnostics() {
   const diagnostics = useResQ((s) => s.diagnostics);
   const resetDiagnostics = useResQ((s) => s.resetDiagnostics);
   const wristbands = useResQ((s) => s.wristbands);
-  const anchors = useResQ((s) => s.anchors);
   const hub = useResQ((s) => s.hub);
 
   const [selectedBand, setSelectedBand] = useState<string>("ALL");
   const [metricView, setMetricView] = useState<"rssi" | "snr">("rssi");
-  const [eventFilter, setEventFilter] = useState<"all" | "drop" | "lost">("all");
+  const [eventFilter, setEventFilter] = useState<"all" | "drop" | "lost" | "recovered">("all");
   const [hoveredPoint, setHoveredPoint] = useState<{
     target: string;
     rssi: number;
@@ -329,6 +329,9 @@ export function DevDiagnostics() {
             </span>
           </div>
         </div>
+
+        {/* Whole-system overview, dropout timeline, traffic, per-device status */}
+        <NodeOverview />
 
         {/* Real-time Graph Section */}
         <div className="panel p-3">
@@ -733,68 +736,6 @@ export function DevDiagnostics() {
           </div>
         </div>
 
-        {/* Pillars Backhaul to MainNode Status */}
-        <div className="panel p-3">
-          <div className="panel-header -mx-3 -mt-3 mb-3 justify-between">
-            <span>Pillars Link to MainNode Hub (สัญญาณเสาแต่ละตัวไปยังโหนดศูนย์กลาง)</span>
-            <span className="font-mono text-2xs text-app-dim">
-              SX1278 LoRa Uplink
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-            {[0, 1, 2, 3].map((pinIdx) => {
-              const anchor = Object.values(anchors).find((a) => a.pinIndex === pinIdx);
-              const pDiag = diagnostics.pins[pinIdx];
-              const isOnline = anchor?.online || (pDiag && (Date.now() - pDiag.lastSeen) < 25000);
-              const rssiStyle = pDiag ? getRssiColor(pDiag.rssiToHub) : null;
-
-              return (
-                <div
-                  key={pinIdx}
-                  className={`p-2.5 rounded border ${isOnline ? "bg-app-surface border-app-border" : "bg-app-bg border-app-divider opacity-60"}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-app-text">
-                      เสา {pinIdx + 1} ({anchor?.name || `Pin-${pinIdx + 1}`})
-                    </span>
-                    <span className={`h-2 w-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-rose-500"}`} />
-                  </div>
-
-                  <div className="mt-2 space-y-1 text-2xs font-mono">
-                    <div className="flex justify-between">
-                      <span className="text-app-muted font-sans">LoRa to Hub:</span>
-                      {pDiag && rssiStyle ? (
-                        <span className={`font-semibold ${rssiStyle.text}`}>
-                          {pDiag.rssiToHub} dBm ({pDiag.snrToHub} dB)
-                        </span>
-                      ) : (
-                        <span className="text-app-muted">ไม่มีข้อมูล</span>
-                      )}
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-app-muted font-sans">Reports Count:</span>
-                      <span className="text-app-text">{pDiag?.reportsCount ?? 0} ครั้ง</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-app-muted font-sans">ได้ยินกำไล:</span>
-                      <span className="text-status-info">
-                        {pDiag?.bandsHeardHistory.slice(-1)[0]?.count ?? 0} เครื่อง
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-app-muted font-sans">สถานะ:</span>
-                      <span className={isOnline ? "text-emerald-400" : "text-rose-400 font-sans"}>
-                        {isOnline ? "ONLINE" : "OFFLINE / DISCONNECTED"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Disconnect & Packet Loss Event Log Table */}
         <div className="panel p-3">
           <div className="panel-header -mx-3 -mt-3 mb-3 justify-between">
@@ -825,6 +766,12 @@ export function DevDiagnostics() {
               >
                 ขาดการติดต่อ (Lost)
               </button>
+              <button
+                onClick={() => setEventFilter("recovered")}
+                className={`btn btn-sm ${eventFilter === "recovered" ? "btn-accent" : "btn-ghost border border-app-border"}`}
+              >
+                กลับมาแล้ว (Recovered)
+              </button>
             </div>
           </div>
 
@@ -850,6 +797,7 @@ export function DevDiagnostics() {
                   {filteredEvents.slice(0, 50).map((ev) => {
                     const isDrop = ev.type === "drop";
                     const isLost = ev.type === "lost";
+                    const isRecovered = ev.type === "recovered";
 
                     return (
                       <tr key={ev.id} className="hover:bg-app-raised transition-colors">
@@ -867,10 +815,12 @@ export function DevDiagnostics() {
                                 ? "bg-rose-950 text-rose-400 border border-rose-800"
                                 : isDrop
                                 ? "bg-amber-950 text-amber-400 border border-amber-800"
+                                : isRecovered
+                                ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
                                 : "bg-app-surface text-app-dim border border-app-border"
                             }`}
                           >
-                            {isLost ? "DISCONNECTED" : isDrop ? "PACKET DROP" : ev.type}
+                            {isLost ? "DISCONNECTED" : isDrop ? "PACKET DROP" : isRecovered ? "RECOVERED" : ev.type}
                           </span>
                         </td>
                         <td className="py-1.5 px-2 font-semibold text-app-text">

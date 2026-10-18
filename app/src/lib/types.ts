@@ -201,9 +201,40 @@ export interface DisconnectEvent {
   message: string;
 }
 
+// Per-device activity ledger: what each node sent/did, how many bytes went
+// over the air, and when it dropped off. Keyed "band:<ID>", "pin:<idx>",
+// "hub", "node:<ID>".
+export type NodeKind = "hub" | "pin" | "band" | "resq";
+
+export interface ActivityBucket {
+  t: number;      // bucket start (ms, aligned to ACTIVITY_BUCKET_MS)
+  rx: number;     // packets heard in this bucket
+  lost: number;   // packets known missing (seq gap / missed TDMA report)
+  bytes: number;
+}
+
+export interface NodeActivity {
+  key: string;
+  kind: NodeKind;
+  label: string;
+  firstSeen: number;
+  lastSeen: number;
+  rx: number;
+  lost: number;
+  bytes: number;
+  byType: Record<string, number>;   // packet/event type -> count
+  buckets: ActivityBucket[];        // sparse, oldest first
+  online: boolean;
+  onlineSince: number;
+  offlineSince?: number;
+  downtimeMs: number;               // closed offline periods only
+  disconnects: number;
+}
+
 export interface ConnectionDiagnostics {
   bands: Record<string, BandLinkDiagnostic>;
   pins: Record<number, PinLinkDiagnostic>;
+  activity: Record<string, NodeActivity>;
   hubStats: {
     totalRx: number;
     totalDropped: number;

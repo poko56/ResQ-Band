@@ -21,6 +21,7 @@ import type {
   UnassignedAnchor,
   Wristband,
 } from "./types";
+import { ACTIVITY_BUCKET_MS, applyActivity, formatDuration, sweepActivity, type ActivityInput } from "./activity";
 
 type PlacementMode = "none" | string; // "none" or anchorId
 
@@ -46,6 +47,7 @@ interface ResQState {
   incHubDropped: () => void;
   recordHubStats: (stats: { rx: number; dropped: number; uptimeS: number; cycle: number; heap?: number }) => void;
   resetDiagnostics: () => void;
+  recordActivity: (input: Omit<ActivityInput, "now">) => void;
   setDemoMode: (enabled: boolean) => void;
 
   // --- Roster ops --------------------------------------------------------
@@ -110,6 +112,7 @@ const defaultHub = (): HubStatus => ({
 const defaultDiagnostics = (): ConnectionDiagnostics => ({
   bands: {},
   pins: {},
+  activity: {},
   hubStats: {
     totalRx: 0,
     totalDropped: 0,
@@ -119,6 +122,28 @@ const defaultDiagnostics = (): ConnectionDiagnostics => ({
   },
   disconnectEvents: [],
 });
+
+// Fold one event into the activity ledger; adds a "recovered" log entry when
+// the node was offline.
+function foldActivity(diag: ConnectionDiagnostics, input: ActivityInput): ConnectionDiagnostics {
+  const { node, recoveredAfterMs } = applyActivity(diag.activity[input.key], input);
+  let disconnectEvents = diag.disconnectEvents;
+  if (recoveredAfterMs !== undefined) {
+    disconnectEvents = [{
+      id: nanoid(6),
+      ts: input.now,
+      type: "recovered" as const,
+      target: input.label,
+      message: `${input.label} กลับมาเชื่อมต่อแล้ว (หายไป ${formatDuration(recoveredAfterMs)})`,
+    }, ...disconnectEvents].slice(0, 100);
+  }
+  return { ...diag, activity: { ...diag.activity, [input.key]: node }, disconnectEvents };
+}
+
+function bandLabel(id: string, wristbands: Record<string, Wristband>): string {
+  const name = wristbands[id]?.name;
+  return name ? `${name} (${id})` : `Band ${id}`;
+}
 
 function statusFromPacketType(ptype: string, prev?: BandStatus): BandStatus {
   if (ptype === "SOS_TAP" || ptype === "SOS_FALL" || ptype === "SOS_VITALS") return "sos";
@@ -188,8 +213,11 @@ export const useResQ = create<ResQState>()(
         dropped: stats.dropped,
         heap: stats.heap ?? 0,
       };
+      // MainNode's own "dropped" counter (runt/CRC-failed LoRa frames) is the
+      // hub's loss; count only the increase since the previous stats line.
+      const droppedDelta = prev.history.length > 0 ? Math.max(0, stats.dropped - prev.totalDropped) : 0;
       return {
-        diagnostics: {
+        diagnostics: foldActivity({
           ...s.diagnostics,
           hubStats: {
             totalRx: stats.rx,
@@ -198,7 +226,14 @@ export const useResQ = create<ResQState>()(
             currentCycle: stats.cycle,
             history: [...prev.history, historyPoint].slice(-120),
           },
-        },
+        }, {
+          key: "hub",
+          kind: "hub",
+          label: "MainNode",
+          type: "STATS",
+          lost: droppedDelta,
+          now,
+        }),
       };
     }),
 
@@ -206,6 +241,9 @@ export const useResQ = create<ResQState>()(
     set({
       diagnostics: defaultDiagnostics(),
     }),
+
+  recordActivity: (input) =>
+    set((s) => ({ diagnostics: foldActivity(s.diagnostics, { ...input, now: Date.now() }) })),
 
   setHubState: (state, error) =>
     set((s) => ({ hub: { ...s.hub, state, lastError: error } })),
@@ -427,11 +465,18 @@ export const useResQ = create<ResQState>()(
       return {
         sightings: { ...s.sightings, [ev.id]: next },
         searchMode,
-        diagnostics: {
+        diagnostics: foldActivity({
           ...s.diagnostics,
           bands: { ...s.diagnostics.bands, [ev.id]: nextBandDiag },
           disconnectEvents: nextDisconnectEvents.slice(0, 100),
-        },
+        }, {
+          key: `band:${ev.id}`,
+          kind: "band",
+          label: bandLabel(ev.id, s.wristbands),
+          type: ev.ptype,
+          lost: lostInBetween,
+          now,
+        }),
       };
     });
     if (ev.ptype === "SOS_TAP" || ev.ptype === "SOS_FALL" || ev.ptype === "SOS_VITALS") {
@@ -503,6 +548,11 @@ export const useResQ = create<ResQState>()(
       // --- Dev Link Diagnostics for Pillars ---
       const now = Date.now();
       const prevPinDiag = s.diagnostics.pins[ev.pin];
+      // A pin reports once per TDMA cycle, so a longer gap means missed reports.
+      const prevPinActivity = s.diagnostics.activity[`pin:${ev.pin}`];
+      const missedReports = prevPinActivity
+        ? Math.max(0, Math.round((now - prevPinActivity.lastSeen) / ACTIVITY_BUCKET_MS) - 1)
+        : 0;
       const pinRssi = ev.rssi ?? -90;
       const pinSnr = ev.snr ?? 0;
       const nextPinDiag: PinLinkDiagnostic = {
@@ -539,11 +589,18 @@ export const useResQ = create<ResQState>()(
       return {
         anchors: nextAnchors,
         sightings: nextSightings,
-        diagnostics: {
+        diagnostics: foldActivity({
           ...s.diagnostics,
           pins: { ...s.diagnostics.pins, [ev.pin]: nextPinDiag },
           bands: nextBandsDiag,
-        },
+        }, {
+          key: `pin:${ev.pin}`,
+          kind: "pin",
+          label: `เสา ${ev.pin + 1}`,
+          type: "PIN_SIGHTING",
+          lost: missedReports,
+          now,
+        }),
       };
     });
   },
@@ -666,6 +723,7 @@ export const useResQ = create<ResQState>()(
     set((s) => {
       let changed = false;
       const nextAnchors = { ...s.anchors };
+      const nextSightings = { ...s.sightings };
       const nextDisconnectEvents = [...s.diagnostics.disconnectEvents];
 
       for (const id in nextAnchors) {
@@ -700,11 +758,29 @@ export const useResQ = create<ResQState>()(
         }
       }
 
+      // Hub and handheld have no anchor/sighting entry, so log their
+      // disconnects from the activity ledger.
+      const swept = sweepActivity(s.diagnostics.activity, now);
+      if (swept) {
+        changed = true;
+        for (const n of swept.wentOffline) {
+          if (n.kind !== "hub" && n.kind !== "resq") continue;
+          nextDisconnectEvents.unshift({
+            id: nanoid(6),
+            ts: now,
+            type: "lost",
+            target: n.label,
+            message: `${n.label} ขาดการติดต่อ (เงียบ ${formatDuration(now - n.lastSeen)})`,
+          });
+        }
+      }
+
       return changed ? {
         anchors: nextAnchors,
         sightings: nextSightings,
         diagnostics: {
           ...s.diagnostics,
+          activity: swept?.activity ?? s.diagnostics.activity,
           disconnectEvents: nextDisconnectEvents.slice(0, 100),
         },
       } : s;

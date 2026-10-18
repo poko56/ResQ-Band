@@ -24,7 +24,8 @@ let tickHandle: ReturnType<typeof setInterval> | null = null;
 let statsHandle: ReturnType<typeof setInterval> | null = null;
 const mockSeqs: Record<string, number> = {};
 let mockRx = 0;
-let mockDropped = 0;
+let mockRunts = 0;      // frames MainNode itself throws away (short / bad CRC)
+let mockTurn = 0;
 let mockCycle = 0;
 
 export function startMockStream() {
@@ -35,7 +36,8 @@ export function startMockStream() {
     const ids = Object.keys(wristbands);
     if (ids.length === 0) return;
 
-    const target = pick(ids);
+    // Round-robin so every band reports regularly, like the real 10 s heartbeat.
+    const target = ids[mockTurn++ % ids.length]!;
     const prev = sightings[target];
     const triage = prev?.status === "rescued" ? prev.triage : pick(TRIAGE_POOL);
 
@@ -55,7 +57,6 @@ export function startMockStream() {
     if (Math.random() < 0.08) {
       const dropCount = Math.floor(1 + Math.random() * 2);
       seq += dropCount;
-      mockDropped += dropCount;
     }
     mockSeqs[target] = seq;
     mockRx++;
@@ -77,7 +78,11 @@ export function startMockStream() {
 
     // Fake pin sightings from each placed anchor so the map can infer positions.
     const anchorList = Object.values(anchors);
+    // Pillar 3 goes dark for 40 s out of every 2 min so Dev Tools has an
+    // outage to show.
+    const pin3Outage = (Date.now() / 1000) % 120 < 40;
     for (const anchor of anchorList.slice(0, 4)) {
+      if (anchor.pinIndex === 2 && pin3Outage) continue;
       applyPinSighting({
         pin: anchor.pinIndex,
         pin_id: anchor.id,
@@ -110,11 +115,12 @@ export function startMockStream() {
   if (!statsHandle) {
     statsHandle = setInterval(() => {
       mockCycle++;
+      if (Math.random() < 0.05) mockRunts++;
       const { recordHubStats, setHubInfo } = useResQ.getState();
-      setHubInfo({ cycleId: mockCycle, loraPacketsReceived: mockRx, loraPacketsDropped: mockDropped });
+      setHubInfo({ cycleId: mockCycle, loraPacketsReceived: mockRx, loraPacketsDropped: mockRunts });
       recordHubStats({
         rx: mockRx,
-        dropped: mockDropped,
+        dropped: mockRunts,
         uptimeS: mockCycle * 3,
         cycle: mockCycle,
         heap: 184000 + Math.round(Math.random() * 4000),
