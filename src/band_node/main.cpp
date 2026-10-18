@@ -90,7 +90,7 @@ static bool connect_lora() {
   LoRa.setSignalBandwidth(LORA_BANDWIDTH);
   LoRa.setCodingRate4(LORA_CODING_RATE);
   LoRa.setSyncWord(LORA_SYNC_WORD);
-  LoRa.setTxPower(LORA_TX_POWER_DBM);
+  LoRa.setTxPower(LORA_BAND_TX_POWER_DBM);
   LoRa.enableCrc();
   
   pinMode(PIN_LORA_DIO0, INPUT);
@@ -143,8 +143,11 @@ static void tx_heartbeat() {
   ++g_seq;
   read_vitals(&g_hr, &g_spo2);
   
+  // No pulse reading (band not worn, or no detectable pulse) is BLACK: the
+  // dispatcher must still see the band on the map, flagged as no-pulse.
   ResQ::TriageLevel triage = ResQ::TRIAGE_GREEN;
-  if (g_hr > VITAL_HR_CRITICAL_HIGH || (g_hr > 0 && g_hr < VITAL_HR_CRITICAL_LOW) || (g_spo2 > 0 && g_spo2 <= VITAL_SPO2_CRITICAL)) triage = ResQ::TRIAGE_RED;
+  if (g_hr == 0) triage = ResQ::TRIAGE_BLACK;
+  else if (g_hr > VITAL_HR_CRITICAL_HIGH || (g_hr > 0 && g_hr < VITAL_HR_CRITICAL_LOW) || (g_spo2 > 0 && g_spo2 <= VITAL_SPO2_CRITICAL)) triage = ResQ::TRIAGE_RED;
   else if (g_hr > VITAL_HR_WARN_HIGH || (g_hr > 0 && g_hr < VITAL_HR_WARN_LOW) || (g_spo2 > 0 && g_spo2 <= VITAL_SPO2_WARN)) triage = ResQ::TRIAGE_YELLOW;
 
   ResQ::SOSPacket pkt{};
@@ -193,6 +196,11 @@ static void tx_emergency(uint8_t cause, float /*max_g*/) {
   tx_packet(pkt);
   digitalWrite(PIN_LED_STATUS, LOW);
   Serial.printf("[SOS] cause=%u (Vitals Critical) tx_seq=%u\n", cause, g_seq);
+
+  // Sound locally too, so rescuers nearby can hear where the wearer is.
+  g_buzz_until_ms = millis() + 3000;
+  g_buzz_freq_hz  = 2500;
+  g_buzz_pattern  = 2;
 }
 
 // ----------------------------------------------------------------------------
@@ -240,9 +248,38 @@ static void on_lora_rx(int packet_size) {
 // ----------------------------------------------------------------------------
 // Buzzer driver - runs from loop(), supports 3 patterns
 // ----------------------------------------------------------------------------
+// An ACTIVE buzzer (has its own oscillator) beeps on a plain HIGH. A PASSIVE
+// one stays silent on DC and needs a square wave - build with
+// -D BUZZER_PASSIVE=1 if the boot beep is silent.
+#ifndef BUZZER_PASSIVE
+#define BUZZER_PASSIVE 0
+#endif
+static constexpr uint8_t BUZZER_LEDC_CH = 0;
+
+static void buzzer_set(bool on) {
+  static int8_t s_state = -1;
+  if (s_state == (on ? 1 : 0)) return;
+  s_state = on ? 1 : 0;
+#if BUZZER_PASSIVE
+  ledcWriteTone(BUZZER_LEDC_CH, on ? g_buzz_freq_hz : 0);
+#else
+  digitalWrite(PIN_BUZZER, on ? HIGH : LOW);
+#endif
+}
+
+static void buzzer_begin() {
+#if BUZZER_PASSIVE
+  ledcSetup(BUZZER_LEDC_CH, 2000, 8);
+  ledcAttachPin(PIN_BUZZER, BUZZER_LEDC_CH);
+#else
+  pinMode(PIN_BUZZER, OUTPUT);
+#endif
+  buzzer_set(false);
+}
+
 static void update_buzzer(uint32_t now) {
   if (now >= g_buzz_until_ms) {
-    digitalWrite(PIN_BUZZER, LOW);
+    buzzer_set(false);
     return;
   }
   bool on = false;
@@ -253,7 +290,7 @@ static void update_buzzer(uint32_t now) {
              break;
     default: on = ((now / 200) & 1); break;
   }
-  digitalWrite(PIN_BUZZER, on ? HIGH : LOW);
+  buzzer_set(on);
 }
 
 // ----------------------------------------------------------------------------
@@ -313,10 +350,13 @@ void setup() {
   setCpuFrequencyMhz(80);
 
   pinMode(PIN_LED_STATUS, OUTPUT);
-  pinMode(PIN_BUZZER,     OUTPUT);
-
   digitalWrite(PIN_LED_STATUS, LOW);
-  digitalWrite(PIN_BUZZER,     LOW);
+  buzzer_begin();
+
+  // Short boot beep: proves the buzzer and its wiring work before deployment.
+  buzzer_set(true);
+  delay(150);
+  buzzer_set(false);
 
   analogReadResolution(12);
 

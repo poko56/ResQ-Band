@@ -10,6 +10,10 @@ struct SeenBand {
 };
 
 extern uint32_t webui_wants_target_id;
+extern volatile bool webui_wants_ring;   // set by POST /api/ring
+
+enum RingState : uint8_t { RING_IDLE = 0, RING_SENDING = 1, RING_ACKED = 2, RING_TIMEOUT = 3 };
+void webui_set_ring_state(RingState s);
 
 void init_web_ui();
 void webui_loop();

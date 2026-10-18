@@ -7,6 +7,10 @@ static WebServer server(80);
 
 String g_webui_debug = "Boot OK";
 uint32_t webui_wants_target_id = 0;
+volatile bool webui_wants_ring = false;
+
+static RingState s_ring_state = RING_IDLE;
+void webui_set_ring_state(RingState s) { s_ring_state = s; }
 
 // State variables for WebUI
 static uint32_t s_target_id = 0;
@@ -148,6 +152,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <div class="dist-big" id="distance">--</div>
         <div class="dist-sub">Distance to wearer</div>
         <div class="med" id="target-medical"></div>
+        <button class="btn accent" id="ring-btn" onclick="ringBand()" style="margin-top:10px;display:none;">🔔 ส่งเสียงที่กำไล</button>
+        <div class="hint" id="ring-status" style="text-align:center;"></div>
       </div>
     </div>
 
@@ -218,14 +224,20 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
 
     function assignTarget(id){
-      fetch('/api/assign?id='+id, { method:'POST' }).then(r=>r.json()).then(()=>updateData()).catch(e=>console.error(e));
+      fetch('/api/assign?id='+id, { method:'POST' }).catch(()=>{});
     }
 
-    const TRIAGE_LABEL = ['SAFE','WATCH','CRITICAL','DECEASED'];
+    function ringBand(){
+      document.getElementById('ring-status').innerText = 'กำลังส่งคำสั่ง…';
+      fetch('/api/ring', { method:'POST' }).catch(()=>{});
+    }
+    const RING_TEXT = ['', 'กำลังเรียกกำไล… (รอกำไลตื่น สูงสุด ~12 วิ)', '✅ กำไลกำลังส่งเสียง', '⚠️ กำไลไม่ตอบ (อยู่นอกระยะหรือปิดอยู่)'];
+
+    const TRIAGE_LABEL = ['SAFE','WATCH','CRITICAL','NO PULSE'];
     const TRIAGE_COLOR = ['#5fb878','#d4a235','#d04545','#909090'];
 
-    function updateData(){
-      fetch('/api/data').then(r=>r.json()).then(data=>{
+    function updateData(signal){
+      return fetch('/api/data', { signal }).then(r=>r.json()).then(data=>{
         document.getElementById('debug_msg').innerText = data.debug || '';
         const bands = data.bands || [];
         document.getElementById('band-count').innerText = bands.length;
@@ -237,7 +249,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
           document.getElementById('distance').innerText = '--';
           document.getElementById('blip').style.display = 'none';
           document.getElementById('vitals-panel').style.display = 'none';
+          document.getElementById('ring-btn').style.display = 'none';
+          document.getElementById('ring-status').innerText = '';
         } else {
+          document.getElementById('ring-btn').style.display = 'flex';
+          document.getElementById('ring-status').innerText = RING_TEXT[data.ring] || '';
           const hexId = data.target_id.toString(16).toUpperCase().padStart(8,'0');
           const pInfo = rosterCache[hexId];
           document.getElementById('target-id').innerText = pInfo ? pInfo.name : hexId;
@@ -299,11 +315,24 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             return '<tr><td>'+nm+badge+'</td><td>'+hr+'</td><td class="mono">'+b.rssi+'</td><td>'+btn+'</td></tr>';
           }).join('');
         }
-      }).catch(e=>console.error(e));
+        setLink(true);
+      }).catch(()=>setLink(false));
     }
 
-    setInterval(updateData, 500);
-    updateData();
+    // Poll sequentially: wait for each reply (or a 3 s timeout) before the next
+    // request. A fixed setInterval piled requests onto the single-threaded ESP32
+    // web server whenever it was busy, and they failed in bursts.
+    function setLink(ok){
+      const s = document.getElementById('topstat');
+      if(!ok){ s.innerText = 'Reconnecting…'; s.style.color = 'var(--yellow)'; }
+      else { s.style.color = ''; }
+    }
+    function poll(){
+      const ctl = new AbortController();
+      const t = setTimeout(()=>ctl.abort(), 3000);
+      updateData(ctl.signal).finally(()=>{ clearTimeout(t); setTimeout(poll, 700); });
+    }
+    poll();
   </script>
 </body>
 </html>
@@ -322,6 +351,7 @@ void handleApiData() {
   json += "\"spo2\":" + String(s_v_spo2) + ",";
   json += "\"batt\":" + String(s_v_batt) + ",";
   json += "\"triage\":" + String(s_v_triage) + ",";
+  json += "\"ring\":" + String((int)s_ring_state) + ",";
   
   String extDebug = g_webui_debug + " | T:" + String(s_target_id, HEX);
   extDebug += " [";
@@ -352,6 +382,12 @@ void handleAssign() {
   if (server.hasArg("id")) {
     webui_wants_target_id = strtoul(server.arg("id").c_str(), NULL, 10);
   }
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "application/json", "{\"success\":true}");
+}
+
+void handleRing() {
+  webui_wants_ring = true;
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", "{\"success\":true}");
 }
@@ -427,6 +463,11 @@ void init_web_ui() {
   server.on("/api/data", HTTP_OPTIONS, handleOptions);
   server.on("/api/assign", HTTP_POST, handleAssign);
   server.on("/api/assign", HTTP_OPTIONS, handleOptions);
+  server.on("/api/ring", HTTP_POST, handleRing);
+  server.on("/api/ring", HTTP_OPTIONS, handleOptions);
+  // Browsers always ask for a favicon; answer it instead of logging a 404.
+  server.on("/favicon.ico", HTTP_GET, []() { server.send(204); });
+  server.onNotFound([]() { server.send(404, "text/plain", "Not found"); });
   
   server.on("/api/roster", HTTP_GET, handleRosterGet);
   server.on("/api/roster", HTTP_POST, handleRosterPostDone, handleRosterUpload);

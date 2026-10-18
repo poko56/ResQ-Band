@@ -24,16 +24,16 @@ static uint8_t    g_last_triage  = 0;
 // Log-distance path loss:  d = 10 ^ ((RSSI_REF_1M - rssi) / (10 * PATH_LOSS_N))
 //
 // RSSI_REF_1M is the packet RSSI you would measure ~1 m from the band. It scales
-// with the band's TX power, so we DERIVE it from LORA_TX_POWER_DBM plus one
+// with the band's TX power, so we DERIVE it from LORA_BAND_TX_POWER_DBM plus one
 // calibration constant, RSSI_1M_LOSS (the path loss at 1 m, antennas included).
 // Because the reference tracks TX power, dropping the band to 2 dBm no longer
 // inflates the distance - the whole RSSI curve shifts down and so does the ref.
 //
 // To calibrate in the field: stand 1 m from the band, read the RSSI the handheld
-// shows for it, then set RSSI_1M_LOSS = LORA_TX_POWER_DBM - that_rssi.
+// shows for it, then set RSSI_1M_LOSS = LORA_BAND_TX_POWER_DBM - that_rssi.
 //   e.g. TX = 2 dBm and RSSI at 1 m = -38  ->  RSSI_1M_LOSS = 2 - (-38) = 40
 static const float RSSI_1M_LOSS = 87.5f;                        // <-- field-calibrate
-static const float RSSI_REF_1M  = (float)LORA_TX_POWER_DBM - RSSI_1M_LOSS;
+static const float RSSI_REF_1M  = (float)LORA_BAND_TX_POWER_DBM - RSSI_1M_LOSS;   // bands transmit at this power
 static const float PATH_LOSS_N  = 2.5f;    // 2.0 = free space; higher through rubble
 
 // Rough distance in metres from a packet RSSI (<0 => unknown / out of range).
@@ -100,6 +100,7 @@ static bool connect_lora() {
   LoRa.setSignalBandwidth(LORA_BANDWIDTH);
   LoRa.setCodingRate4(LORA_CODING_RATE);
   LoRa.setSyncWord(LORA_SYNC_WORD);
+  LoRa.setTxPower(LORA_TX_POWER_DBM);
   LoRa.enableCrc();
   
   pinMode(PIN_LORA_DIO0, INPUT);
@@ -110,6 +111,86 @@ static bool connect_lora() {
 }
 
 extern String g_webui_debug;
+
+// ---- Buzzer ------------------------------------------------------------------
+// The handheld uses a piezo (passive) buzzer, which is silent on a plain HIGH;
+// drive it with a tone. Build with -D BUZZER_PASSIVE=0 for an active buzzer.
+#ifndef BUZZER_PASSIVE
+#define BUZZER_PASSIVE 1
+#endif
+static constexpr uint8_t BUZZER_LEDC_CH = 0;
+
+static void buzzer_begin() {
+#if BUZZER_PASSIVE
+  ledcSetup(BUZZER_LEDC_CH, 2500, 8);
+  ledcAttachPin(PIN_BUZZER, BUZZER_LEDC_CH);
+  ledcWriteTone(BUZZER_LEDC_CH, 0);
+#else
+  pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
+#endif
+}
+
+static void beep(uint16_t ms, uint16_t freq = 2500) {
+#if BUZZER_PASSIVE
+  ledcWriteTone(BUZZER_LEDC_CH, freq);
+  delay(ms);
+  ledcWriteTone(BUZZER_LEDC_CH, 0);
+#else
+  (void)freq;
+  digitalWrite(PIN_BUZZER, HIGH);
+  delay(ms);
+  digitalWrite(PIN_BUZZER, LOW);
+#endif
+}
+
+// ---- Ring the target band ------------------------------------------------------
+// The band only listens briefly once per TDMA cycle, so repeat RING_CMD until
+// it acks (see RING_RETRY_* in ResQConfig.h).
+static struct {
+  uint32_t band_id    = 0;   // 0 = idle
+  uint32_t until_ms   = 0;
+  uint32_t next_tx_ms = 0;
+} g_ring;
+
+static void tx_ring_cmd(uint32_t band_id) {
+  ResQ::RingCmdPacket pkt;
+  ResQ::fill_ring_cmd(pkt, band_id, 5000 /*ms*/, 2500 /*Hz*/, 2 /*siren*/);
+  LoRa.idle();
+  if (LoRa.beginPacket()) {
+    LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
+    LoRa.endPacket();
+  }
+  LoRa.receive();
+}
+
+static void start_ring(uint32_t band_id) {
+  if (band_id == 0) return;
+  g_ring.band_id    = band_id;
+  g_ring.until_ms   = millis() + RING_RETRY_WINDOW_MS;
+  g_ring.next_tx_ms = 0;
+  webui_set_ring_state(RING_SENDING);
+  beep(60);
+  Serial.printf("[RING] requesting band %08X to sound\n", (unsigned)band_id);
+}
+
+static void update_ring(uint32_t now) {
+  // A new target starts with a clean ring status on the WebUI.
+  static uint32_t s_last_target = 0;
+  if (g_target_id != s_last_target) {
+    s_last_target = g_target_id;
+    if (g_ring.band_id != g_target_id) { g_ring.band_id = 0; webui_set_ring_state(RING_IDLE); }
+  }
+  if (g_ring.band_id == 0) return;
+  if (now >= g_ring.until_ms) {
+    Serial.printf("[RING] no ack from %08X\n", (unsigned)g_ring.band_id);
+    g_ring.band_id = 0;
+    webui_set_ring_state(RING_TIMEOUT);
+  } else if (now >= g_ring.next_tx_ms) {
+    g_ring.next_tx_ms = now + RING_RETRY_INTERVAL_MS;
+    tx_ring_cmd(g_ring.band_id);
+  }
+}
 uint32_t g_rx_count = 0;
 
 static void on_lora_rx(int packet_size) {
@@ -131,7 +212,9 @@ static void process_lora_packet() {
   static size_t last_hb_n = 0;
   
   const uint8_t ptype = ResQ::peek_packet_type(buf, n);
-  if (ptype == ResQ::PKT_HEARTBEAT || ptype == ResQ::PKT_SOS_TAP || ptype == ResQ::PKT_SOS_FALL) {
+  const bool is_band_pkt = ptype == ResQ::PKT_HEARTBEAT || ptype == ResQ::PKT_SOS_TAP ||
+                           ptype == ResQ::PKT_SOS_FALL  || ptype == ResQ::PKT_SOS_VITALS;
+  if (is_band_pkt) {
     c_hb++;
     last_hb_n = n;
   }
@@ -141,8 +224,7 @@ static void process_lora_packet() {
 
   g_webui_debug = "HB:" + String(c_hb) + " (n=" + String(last_hb_n) + ") BC:" + String(c_bc) + " PIN:" + String(c_pin) + " O:" + String(c_other);
     // We care about HEARTBEAT or SOS from band_node
-  if ((ptype == ResQ::PKT_HEARTBEAT || ptype == ResQ::PKT_SOS_TAP || ptype == ResQ::PKT_SOS_FALL) 
-      && n >= sizeof(ResQ::SOSPacket)) {
+  if (is_band_pkt && n >= sizeof(ResQ::SOSPacket)) {
     ResQ::SOSPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
     
@@ -167,6 +249,15 @@ static void process_lora_packet() {
         delay(50);
         digitalWrite(PIN_VIBRATION, LOW);
       }
+    }
+  } else if (ptype == ResQ::PKT_RING_ACK && n >= sizeof(ResQ::RingAckPacket)) {
+    ResQ::RingAckPacket pkt;
+    memcpy(&pkt, buf, sizeof(pkt));
+    if (ResQ::verify_ring_ack(pkt) && pkt.device_id == g_ring.band_id) {
+      g_ring.band_id = 0;
+      webui_set_ring_state(RING_ACKED);
+      Serial.printf("[RING] band %08X is sounding\n", (unsigned)pkt.device_id);
+      beep(80); delay(80); beep(80);   // double beep = band confirmed
     }
   } else if (ptype == ResQ::PKT_ASSIGNMENT && n >= sizeof(ResQ::AssignmentPacket)) {
     ResQ::AssignmentPacket pkt;
@@ -217,13 +308,13 @@ void setup() {
 
   pinMode(PIN_LED_STATUS, OUTPUT);
   pinMode(PIN_VIBRATION,  OUTPUT);
-  pinMode(PIN_BUZZER,     OUTPUT);
+  buzzer_begin();
   pinMode(PIN_BTN_MODE,   INPUT_PULLUP);
   pinMode(PIN_BTN_FOUND,  INPUT_PULLUP);
 
   digitalWrite(PIN_LED_STATUS, LOW);
   digitalWrite(PIN_VIBRATION,  LOW);
-  digitalWrite(PIN_BUZZER,     LOW);
+  beep(150);   // boot beep: proves the buzzer works
 
   g_device_id = static_cast<uint32_t>(ESP.getEfuseMac() & 0xFFFFFFFF);
   print_banner();
@@ -287,6 +378,21 @@ void loop() {
     }
   }
 
+  // Ring button (MODE): make the locked band sound so rescuers can hear it
+  {
+    static bool     s_btn_was_down = false;
+    static uint32_t s_btn_down_ms  = 0;
+    const bool down = digitalRead(PIN_BTN_MODE) == LOW;
+    if (down && !s_btn_was_down) s_btn_down_ms = now;
+    if (!down && s_btn_was_down && now - s_btn_down_ms > 50) start_ring(g_target_id);   // debounced release
+    s_btn_was_down = down;
+  }
+  if (webui_wants_ring) {
+    webui_wants_ring = false;
+    start_ring(g_target_id);
+  }
+  update_ring(now);
+
   // Found button (Confirm rescued) - Requires 1-second hold to avoid EMI triggers
   static uint32_t btn_found_press_start = 0;
   if (digitalRead(PIN_BTN_FOUND) == LOW) {
@@ -295,9 +401,7 @@ void loop() {
     } else if (now - btn_found_press_start > 1000) {
       if (g_target_id != 0) {
         Serial.printf("[FOUND] Confirming rescue for %08X\n", g_target_id);
-        digitalWrite(PIN_BUZZER, HIGH);
-        delay(200);
-        digitalWrite(PIN_BUZZER, LOW);
+        beep(200);
         // Here we would send PKT_FOUND to MainNode via LoRa
         g_target_id = 0; // reset target
         g_last_hr = g_last_spo2 = g_last_batt = g_last_triage = 0;

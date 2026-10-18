@@ -17,13 +17,23 @@
 
 // ---- LoRa radio (433 MHz, ISM band Thailand) -----------------------------
 #define LORA_FREQUENCY         433E6
-#define LORA_SPREADING_FACTOR  7
+// Link budget through rubble. SF9 hears ~5 dB weaker signals than SF7 (about
+// 1.8x the range in the open) at ~2.5x the airtime: an 18-byte heartbeat takes
+// ~185 ms and a 47-byte pin report ~310 ms, both well inside a 1 s TDMA slot.
+// Every device must use the same SF - reflash the whole fleet together.
+// (SF10 still fits a slot but leaves little margin for clock drift; SF11/12
+// do not fit at all.)
+#define LORA_SPREADING_FACTOR  9
 #define LORA_BANDWIDTH         125E3
-#define LORA_CODING_RATE       5
-#define LORA_TX_POWER_DBM      5    // Kept low so the band can read HR while LoRa runs.
-                                     // The weaker signal shifts every RSSI down, so the
-                                     // ResQ-Node's RSSI->distance mapping is calibrated
-                                     // for this TX level (see RSSI_REF_1M in resq_node).
+#define LORA_CODING_RATE       5    // 4/5; raise to 8 (4/8) for more error correction
+// Fixed infrastructure (MainNode, ResQ-Pin, ResQ-Node) runs on mains/large
+// packs and transmits at the Ra-02's full 17 dBm (PA_BOOST).
+#define LORA_TX_POWER_DBM      17
+// The band is battery powered and its radio shares a rail with the MAX30102:
+// at 5 dBm HR read reliably but the signal barely got out from under debris.
+// The radio now sleeps except to transmit, so 10 dBm is affordable. If HR
+// readings drop out while transmitting, lower this again.
+#define LORA_BAND_TX_POWER_DBM 10
 #define LORA_SYNC_WORD         0xA5
 
 // ---- TDMA schedule -------------------------------------------------------
@@ -50,6 +60,14 @@
 
 #define HEARTBEAT_INTERVAL_MS  TDMA_CYCLE_MS      // 1 heartbeat per cycle
 #define SOS_RETRY_INTERVAL_MS  200                // emergency burst spacing
+
+// RING_CMD retry. A Band keeps its radio asleep except for a short listen
+// window (~1.2 s) right after each heartbeat, i.e. once per TDMA cycle, so a
+// single RING_CMD almost always lands while it is deaf. Senders repeat the
+// command at this interval for a little over one cycle, stopping as soon as
+// the Band answers with RING_ACK.
+#define RING_RETRY_INTERVAL_MS 600
+#define RING_RETRY_WINDOW_MS   (TDMA_CYCLE_MS + 2500)
 #define SOS_BURST_COUNT        5                  // repeat SOS this many times
 
 // ---- Triage thresholds (mirror in app/src/lib/triage.ts) ------------------

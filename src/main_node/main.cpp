@@ -88,6 +88,16 @@ static bool     g_local_alarm_active   = false;
 static bool     g_lora_ready           = false;
 static int      g_pending_dispatch_idx = -1;
 
+// RING_CMD being retried until the Band acks (see RING_RETRY_* in ResQConfig.h)
+static struct {
+  uint32_t band_id = 0;      // 0 = nothing pending
+  uint16_t dur_ms  = 0;
+  uint16_t freq    = 0;
+  uint8_t  pat     = 0;
+  uint32_t until_ms   = 0;
+  uint32_t next_tx_ms = 0;
+} g_ring;
+
 // ----------------------------------------------------------------------------
 // Forward decls
 // ----------------------------------------------------------------------------
@@ -260,6 +270,16 @@ void loop() {
     g_last_beacon_ms = now;
     g_cycle_id++;
     tx_beacon();
+  }
+
+  // --- RING_CMD retry until the Band wakes up and acks ----------------------
+  if (g_lora_ready && g_ring.band_id != 0) {
+    if (now >= g_ring.until_ms) {
+      g_ring.band_id = 0;   // gave up - band out of range or off
+    } else if (now >= g_ring.next_tx_ms) {
+      g_ring.next_tx_ms = now + RING_RETRY_INTERVAL_MS;
+      tx_ring_cmd(g_ring.band_id, g_ring.dur_ms, g_ring.freq, g_ring.pat);
+    }
   }
 
   // --- Dispatch assignment in slot 7 (MainNode cmd slot) --------------------
@@ -456,6 +476,7 @@ static void on_lora_rx(int packet_size) {
     memcpy(&pkt, buf, sizeof(pkt));
     if (!ResQ::verify_ring_ack(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
+    if (pkt.device_id == g_ring.band_id) g_ring.band_id = 0;   // band heard us
 
     JsonDocument out;
     out["t"]      = "ring_ack";
@@ -703,7 +724,13 @@ static void handle_serial_command(const char* line, size_t len) {
     uint16_t dur  = doc["duration_ms"] | 3000;
     uint16_t freq = doc["freq"]        | 2000;
     uint8_t  pat  = doc["pattern"]     | 1;
-    tx_ring_cmd(band, dur, freq, pat);
+    // Queue it; loop() repeats it until the Band acks or the window closes.
+    g_ring.band_id    = band;
+    g_ring.dur_ms     = dur;
+    g_ring.freq       = freq;
+    g_ring.pat        = pat;
+    g_ring.until_ms   = millis() + RING_RETRY_WINDOW_MS;
+    g_ring.next_tx_ms = 0;
     JsonDocument r; r["t"] = "ack"; r["c"] = "ring_band"; send_json_event(r);
   }
   else if (!strcmp(cmd, "manual_priority")) {
