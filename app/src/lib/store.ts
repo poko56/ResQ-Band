@@ -380,7 +380,9 @@ export const useResQ = create<ResQState>()(
   },
 
   upsertSightingFromBand: (ev) => {
-    const triage = TRIAGE_FROM_BYTE[ev.triage] ?? "green";
+    // HR 0 means the band reads no pulse (not worn / no detectable pulse).
+    // Older band firmware still reported GREEN for that, so classify it here.
+    const triage: TriageLevel = ev.hr === 0 ? "black" : (TRIAGE_FROM_BYTE[ev.triage] ?? "green");
     const now = Date.now();
     set((s) => {
       const prev = s.sightings[ev.id];
@@ -788,6 +790,11 @@ export const useResQ = create<ResQState>()(
   },
 }), {
   name: "resq-storage",
+  // Rehydrate from localStorage after mount (ClientLayout), not during module
+  // load: the static HTML is rendered with the default state, and reading
+  // localStorage before React hydrates made the first client render differ
+  // from it (React error #418 on every page).
+  skipHydration: true,
   partialize: (state) => ({
     incident: state.incident,
     wristbands: state.wristbands,

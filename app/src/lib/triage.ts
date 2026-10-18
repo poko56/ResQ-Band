@@ -34,5 +34,5 @@ export const TRIAGE_LABELS_TH: Record<TriageLevel, string> = {
   green: "ปลอดภัย",
   yellow: "เฝ้าระวัง",
   red: "วิกฤต",
-  black: "ไม่ตอบสนอง",
+  black: "ไม่พบชีพจร",
 };

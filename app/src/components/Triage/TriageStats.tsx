@@ -23,7 +23,8 @@ export function TriageStats() {
     <div className="grid grid-cols-5 gap-px bg-app-divider border-b border-app-divider">
       {LEVELS.map((lvl) => (
         <div key={lvl} className="stat">
-          <div className="stat-value" style={{ color: TRIAGE_COLORS[lvl] }}>{counts[lvl]}</div>
+          {/* #2a2a2a is invisible on the dark panel, so the black count uses light ink */}
+          <div className="stat-value" style={{ color: lvl === "black" ? "#bdbdbd" : TRIAGE_COLORS[lvl] }}>{counts[lvl]}</div>
           <div className="stat-label">{TRIAGE_LABELS_TH[lvl]}</div>
         </div>
       ))}

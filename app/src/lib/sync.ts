@@ -12,6 +12,13 @@ let isRestoring = false;
 export async function initFirebaseSync() {
   if (typeof window === "undefined") return () => {};
 
+  // Without the web API key (NEXT_PUBLIC_FIREBASE_API_KEY in app/.env.local)
+  // every Firestore call fails, so run offline instead of erroring.
+  if (!process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+    console.info("[Firebase Sync] ไม่มี NEXT_PUBLIC_FIREBASE_API_KEY - ทำงานแบบออฟไลน์ (ไม่ sync)");
+    return () => {};
+  }
+
   const db = await getFirebaseDb();
   if (!db) return () => {};
 
@@ -54,16 +61,16 @@ export async function initFirebaseSync() {
       timeout = setTimeout(() => {
         // Must read fresh state inside timeout
         const { incident, wristbands, anchors, sightings, timeline } = useResQ.getState();
-        setDoc(docRef, {
-          incident,
-          wristbands,
-          anchors,
-          sightings,
-          timeline,
-          updatedAt: Date.now()
-        }, { merge: true }).catch((err) => {
-          console.warn("[Firebase Sync] Error saving to Firestore:", err);
-        });
+        // Firestore rejects `undefined` field values (e.g. an unset
+        // priorityScore) and throws synchronously; a JSON round-trip drops them.
+        const payload = JSON.parse(JSON.stringify({ incident, wristbands, anchors, sightings, timeline }));
+        try {
+          setDoc(docRef, { ...payload, updatedAt: Date.now() }, { merge: true }).catch((err) => {
+            console.warn("[Firebase Sync] Error saving to Firestore:", err);
+          });
+        } catch (err) {
+          console.warn("[Firebase Sync] Invalid data for Firestore:", err);
+        }
       }, 500); // 500ms debounce is responsive enough without spamming
     }
   });

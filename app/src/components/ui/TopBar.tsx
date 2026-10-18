@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useResQ } from "@/lib/store";
 
@@ -21,6 +22,10 @@ export function TopBar() {
   const emergencyMode  = useResQ((s) => s.hub.emergencyMode);
   const resetIncident  = useResQ((s) => s.resetIncident);
   const pathname       = usePathname();
+  // The start time depends on the browser clock and saved state, so it is only
+  // rendered after mount to keep the first render identical to the static HTML.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   function handleReset() {
     if (confirm("เริ่มภารกิจใหม่? ข้อมูลเสา, ตำแหน่ง, และ event log ทั้งหมดจะถูกล้าง (รายชื่อกำไลจะยังอยู่)")) {
@@ -65,7 +70,7 @@ export function TopBar() {
         <div className="flex items-center gap-2 px-3 border-l border-app-divider">
           <span className="text-xs text-app-dim truncate max-w-[260px]">{incident.name}</span>
           <span className="font-mono text-2xs text-app-muted">
-            {new Date(incident.startedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}
+            {mounted ? new Date(incident.startedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "--:--"}
           </span>
         </div>
 
