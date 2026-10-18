@@ -148,6 +148,73 @@ export interface Incident {
 }
 
 // ----------------------------------------------------------------------------
+// Link Health & Dev Diagnostics
+// ----------------------------------------------------------------------------
+export interface LinkHealthPoint {
+  ts: number;
+  rssi: number;
+  snr: number;
+  seq?: number;
+  lostCount?: number;
+  source: "direct" | "pin";
+  pinIndex?: number;
+}
+
+export interface BandLinkDiagnostic {
+  id: string;
+  firstSeen: number;
+  lastSeen: number;
+  lastSeq?: number;
+  totalExpected: number;
+  totalReceived: number;
+  totalLost: number;
+  lossRatePct: number;
+  consecutiveMissed: number;
+  currentRssi: number;
+  currentSnr: number;
+  history: LinkHealthPoint[];
+  pinStats: Record<number, {
+    heardCount: number;
+    lastRssi: number;
+    lastSnr: number;
+    lastSeen: number;
+    history: { ts: number; rssi: number; snr: number }[];
+  }>;
+}
+
+export interface PinLinkDiagnostic {
+  pinIndex: number;
+  pinId: string;
+  lastSeen: number;
+  rssiToHub: number;
+  snrToHub: number;
+  reportsCount: number;
+  historyToHub: { ts: number; rssi: number; snr: number }[];
+  bandsHeardHistory: { ts: number; count: number }[];
+}
+
+export interface DisconnectEvent {
+  id: string;
+  ts: number;
+  type: "drop" | "lost" | "recovered" | "crc_err";
+  target: string;
+  message: string;
+}
+
+export interface ConnectionDiagnostics {
+  bands: Record<string, BandLinkDiagnostic>;
+  pins: Record<number, PinLinkDiagnostic>;
+  hubStats: {
+    totalRx: number;
+    totalDropped: number;
+    uptimeS: number;
+    currentCycle: number;
+    history: { ts: number; rx: number; dropped: number; heap: number }[];
+  };
+  disconnectEvents: DisconnectEvent[];
+}
+
+// ----------------------------------------------------------------------------
 // Hub link
 // ----------------------------------------------------------------------------
 export type HubConnectionState = "disconnected" | "connecting" | "connected" | "error";

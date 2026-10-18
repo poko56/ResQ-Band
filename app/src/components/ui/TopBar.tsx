@@ -5,11 +5,12 @@ import { usePathname } from "next/navigation";
 import { useResQ } from "@/lib/store";
 
 const NAV: { href: string; label: string }[] = [
-  { href: "/",         label: "Live" },
-  { href: "/register", label: "Roster" },
-  { href: "/setup",    label: "Anchors" },
-  { href: "/search",   label: "Dispatch" },
-  { href: "/timeline", label: "Log" },
+  { href: "/",            label: "Live" },
+  { href: "/register",    label: "Roster" },
+  { href: "/setup",       label: "Anchors" },
+  { href: "/search",      label: "Dispatch" },
+  { href: "/timeline",    label: "Log" },
+  { href: "/diagnostics", label: "Dev Tools" },
 ];
 
 export function TopBar() {

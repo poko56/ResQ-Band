@@ -1,7 +1,7 @@
 // ============================================================================
 // Mock event generator for UI testing without real MainNode hardware.
 // Mirrors the JSON event shapes that MainNode emits over USB Serial so it
-// can drive the same store handlers (upsertSightingFromBand, applyPinSighting).
+// can drive the same store handlers (upsertSightingFromBand, applyPinSighting, recordHubStats).
 // ============================================================================
 
 import type { LatLng, TriageLevel } from "./types";
@@ -21,11 +21,17 @@ const TRIAGE_POOL: TriageLevel[] = ["green", "green", "green", "yellow", "yellow
 const TRIAGE_BYTE: Record<TriageLevel, number> = { green: 0, yellow: 1, red: 2, black: 3 };
 
 let tickHandle: ReturnType<typeof setInterval> | null = null;
+let statsHandle: ReturnType<typeof setInterval> | null = null;
+const mockSeqs: Record<string, number> = {};
+let mockRx = 0;
+let mockDropped = 0;
+let mockCycle = 0;
 
 export function startMockStream() {
   if (tickHandle) return;
+
   tickHandle = setInterval(() => {
-    const { wristbands, anchors, upsertSightingFromBand, applyPinSighting, sightings } = useResQ.getState();
+    const { wristbands, anchors, upsertSightingFromBand, applyPinSighting, sightings, incHubPackets } = useResQ.getState();
     const ids = Object.keys(wristbands);
     if (ids.length === 0) return;
 
@@ -44,10 +50,21 @@ export function startMockStream() {
       triage === "yellow" ? 90 + Math.random() * 4 :
       96 + Math.random() * 3;
 
+    // Monotonic sequence numbering with occasional packet drop (8% chance)
+    let seq = (mockSeqs[target] ?? 0) + 1;
+    if (Math.random() < 0.08) {
+      const dropCount = Math.floor(1 + Math.random() * 2);
+      seq += dropCount;
+      mockDropped += dropCount;
+    }
+    mockSeqs[target] = seq;
+    mockRx++;
+    incHubPackets();
+
     upsertSightingFromBand({
       id: target,
       ptype: triage === "red" || triage === "black" ? "SOS_FALL" : "HEARTBEAT",
-      seq: Math.floor(Math.random() * 1000),
+      seq,
       triage: TRIAGE_BYTE[triage],
       hr: Math.round(baseHR),
       spo2: Math.round(baseSpO2),
@@ -66,13 +83,16 @@ export function startMockStream() {
         pin_id: anchor.id,
         sightings: [{
           band: target,
-          rssi: Math.round(-60 - Math.random() * 30),
-          snr: Math.round(5 + Math.random() * 8),
-          age_ms: Math.round(Math.random() * 1000),
+          rssi: Math.round(-65 - Math.random() * 25),
+          snr: Math.round(4 + Math.random() * 8),
+          age_ms: Math.round(Math.random() * 500),
         }],
         ts: Date.now(),
+        rssi: Math.round(-70 - Math.random() * 20),
+        snr: Math.round(6 + Math.random() * 6),
       });
     }
+
     // Tiny position jitter for the active sighting via anchor proximity
     if (anchorList[0] && prev) {
       const useResQState = useResQ.getState();
@@ -85,11 +105,31 @@ export function startMockStream() {
       }
     }
   }, 2000);
+
+  // Periodically emit hub stats so Dev Diagnostics graphs live performance
+  if (!statsHandle) {
+    statsHandle = setInterval(() => {
+      mockCycle++;
+      const { recordHubStats, setHubInfo } = useResQ.getState();
+      setHubInfo({ cycleId: mockCycle, loraPacketsReceived: mockRx, loraPacketsDropped: mockDropped });
+      recordHubStats({
+        rx: mockRx,
+        dropped: mockDropped,
+        uptimeS: mockCycle * 3,
+        cycle: mockCycle,
+        heap: 184000 + Math.round(Math.random() * 4000),
+      });
+    }, 3000);
+  }
 }
 
 export function stopMockStream() {
   if (tickHandle) {
     clearInterval(tickHandle);
     tickHandle = null;
+  }
+  if (statsHandle) {
+    clearInterval(statsHandle);
+    statsHandle = null;
   }
 }

@@ -209,7 +209,19 @@ function dispatchHubEvent(ev: HubEvent): void {
       break;
 
     case "stats":
-      s.setHubInfo({ cycleId: ev.cycle, loraReady: ev.lora_ready });
+      s.setHubInfo({
+        cycleId: ev.cycle,
+        loraReady: ev.lora_ready,
+        loraPacketsReceived: ev.rx,
+        loraPacketsDropped: ev.dropped,
+      });
+      s.recordHubStats({
+        rx: ev.rx,
+        dropped: ev.dropped,
+        uptimeS: ev.uptime_s,
+        cycle: ev.cycle,
+        heap: ev.heap,
+      });
       break;
 
     case "lora_init_failed":

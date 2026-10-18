@@ -4,10 +4,15 @@ import { nanoid } from "nanoid";
 import type {
   Anchor,
   AssignReason,
+  BandLinkDiagnostic,
   BandStatus,
+  ConnectionDiagnostics,
+  DisconnectEvent,
   HubStatus,
   Incident,
   LatLng,
+  LinkHealthPoint,
+  PinLinkDiagnostic,
   PinRssi,
   Sighting,
   TimelineEvent,
@@ -31,6 +36,7 @@ interface ResQState {
   placementMode: PlacementMode;
   searchMode: boolean;
   hub: HubStatus;
+  diagnostics: ConnectionDiagnostics;
 
   // --- Hub link wiring (called from hubBridge.ts) -------------------------
   setHubState: (state: HubStatus["state"], error?: string) => void;
@@ -38,6 +44,8 @@ interface ResQState {
   notifyHubHeartbeat: () => void;
   incHubPackets: () => void;
   incHubDropped: () => void;
+  recordHubStats: (stats: { rx: number; dropped: number; uptimeS: number; cycle: number; heap?: number }) => void;
+  resetDiagnostics: () => void;
   setDemoMode: (enabled: boolean) => void;
 
   // --- Roster ops --------------------------------------------------------
@@ -63,6 +71,8 @@ interface ResQState {
     pin: number; pin_id: string;
     sightings: { band: string; rssi: number; snr: number; age_ms: number }[];
     ts: number;
+    rssi?: number;
+    snr?: number;
   }) => void;
   applyAssignment: (ev: {
     band: string; score: number; pin: number; rssi: number;
@@ -95,6 +105,19 @@ const defaultHub = (): HubStatus => ({
   loraPacketsDropped: 0,
   demoMode: false,
   emergencyMode: false,
+});
+
+const defaultDiagnostics = (): ConnectionDiagnostics => ({
+  bands: {},
+  pins: {},
+  hubStats: {
+    totalRx: 0,
+    totalDropped: 0,
+    uptimeS: 0,
+    currentCycle: 0,
+    history: [],
+  },
+  disconnectEvents: [],
 });
 
 function statusFromPacketType(ptype: string, prev?: BandStatus): BandStatus {
@@ -153,6 +176,36 @@ export const useResQ = create<ResQState>()(
   placementMode: "none",
   searchMode: false,
   hub: defaultHub(),
+  diagnostics: defaultDiagnostics(),
+
+  recordHubStats: (stats) =>
+    set((s) => {
+      const now = Date.now();
+      const prev = s.diagnostics.hubStats;
+      const historyPoint = {
+        ts: now,
+        rx: stats.rx,
+        dropped: stats.dropped,
+        heap: stats.heap ?? 0,
+      };
+      return {
+        diagnostics: {
+          ...s.diagnostics,
+          hubStats: {
+            totalRx: stats.rx,
+            totalDropped: stats.dropped,
+            uptimeS: stats.uptimeS,
+            currentCycle: stats.cycle,
+            history: [...prev.history, historyPoint].slice(-120),
+          },
+        },
+      };
+    }),
+
+  resetDiagnostics: () =>
+    set({
+      diagnostics: defaultDiagnostics(),
+    }),
 
   setHubState: (state, error) =>
     set((s) => ({ hub: { ...s.hub, state, lastError: error } })),
@@ -290,12 +343,13 @@ export const useResQ = create<ResQState>()(
 
   upsertSightingFromBand: (ev) => {
     const triage = TRIAGE_FROM_BYTE[ev.triage] ?? "green";
+    const now = Date.now();
     set((s) => {
       const prev = s.sightings[ev.id];
       const status = statusFromPacketType(ev.ptype, prev?.status);
       const next: Sighting = {
         wristbandId: ev.id,
-        lastSeen: Date.now(),
+        lastSeen: now,
         position: prev?.position,
         rssiPerPin: prev?.rssiPerPin ?? {},
         triage,
@@ -310,7 +364,75 @@ export const useResQ = create<ResQState>()(
         assignedAt: prev?.assignedAt,
       };
       const searchMode = s.searchMode || status === "sos";
-      return { sightings: { ...s.sightings, [ev.id]: next }, searchMode };
+
+      // --- Dev Link Diagnostics Update ---
+      const prevBandDiag = s.diagnostics.bands[ev.id];
+      let totalExpected = prevBandDiag?.totalExpected ?? 0;
+      let totalReceived = (prevBandDiag?.totalReceived ?? 0) + 1;
+      let totalLost = prevBandDiag?.totalLost ?? 0;
+      let lostInBetween = 0;
+
+      if (prevBandDiag && prevBandDiag.lastSeq !== undefined) {
+        const lastSeq = prevBandDiag.lastSeq;
+        // 16-bit sequence delta
+        const seqDiff = (ev.seq >= lastSeq) ? (ev.seq - lastSeq) : (65536 - lastSeq + ev.seq);
+        if (seqDiff > 0) {
+          lostInBetween = seqDiff > 1 ? seqDiff - 1 : 0;
+          totalExpected += seqDiff;
+          totalLost += lostInBetween;
+        } else {
+          totalExpected += 1;
+        }
+      } else {
+        totalExpected = 1;
+      }
+
+      const lossRatePct = totalExpected > 0 ? (totalLost / totalExpected) * 100 : 0;
+      const historyPoint: LinkHealthPoint = {
+        ts: now,
+        rssi: ev.rssi,
+        snr: ev.snr,
+        seq: ev.seq,
+        lostCount: lostInBetween,
+        source: "direct",
+      };
+
+      const nextDisconnectEvents = [...s.diagnostics.disconnectEvents];
+      if (lostInBetween > 0) {
+        nextDisconnectEvents.unshift({
+          id: nanoid(6),
+          ts: now,
+          type: "drop",
+          target: ev.id,
+          message: `Band ${ev.id} พลาดการส่ง ${lostInBetween} แพ็กเก็ต (seq: ${prevBandDiag?.lastSeq} -> ${ev.seq})`,
+        });
+      }
+
+      const nextBandDiag: BandLinkDiagnostic = {
+        id: ev.id,
+        firstSeen: prevBandDiag?.firstSeen ?? now,
+        lastSeen: now,
+        lastSeq: ev.seq,
+        totalExpected,
+        totalReceived,
+        totalLost,
+        lossRatePct,
+        consecutiveMissed: 0,
+        currentRssi: ev.rssi,
+        currentSnr: ev.snr,
+        history: [...(prevBandDiag?.history ?? []), historyPoint].slice(-60),
+        pinStats: prevBandDiag?.pinStats ?? {},
+      };
+
+      return {
+        sightings: { ...s.sightings, [ev.id]: next },
+        searchMode,
+        diagnostics: {
+          ...s.diagnostics,
+          bands: { ...s.diagnostics.bands, [ev.id]: nextBandDiag },
+          disconnectEvents: nextDisconnectEvents.slice(0, 100),
+        },
+      };
     });
     if (ev.ptype === "SOS_TAP" || ev.ptype === "SOS_FALL" || ev.ptype === "SOS_VITALS") {
       const wb = get().wristbands[ev.id];
@@ -377,7 +499,52 @@ export const useResQ = create<ResQState>()(
           assignedAt: prev?.assignedAt,
         };
       }
-      return { anchors: nextAnchors, sightings: nextSightings };
+
+      // --- Dev Link Diagnostics for Pillars ---
+      const now = Date.now();
+      const prevPinDiag = s.diagnostics.pins[ev.pin];
+      const pinRssi = ev.rssi ?? -90;
+      const pinSnr = ev.snr ?? 0;
+      const nextPinDiag: PinLinkDiagnostic = {
+        pinIndex: ev.pin,
+        pinId: id,
+        lastSeen: now,
+        rssiToHub: pinRssi,
+        snrToHub: pinSnr,
+        reportsCount: (prevPinDiag?.reportsCount ?? 0) + 1,
+        historyToHub: [...(prevPinDiag?.historyToHub ?? []), { ts: now, rssi: pinRssi, snr: pinSnr }].slice(-60),
+        bandsHeardHistory: [...(prevPinDiag?.bandsHeardHistory ?? []), { ts: now, count: ev.sightings.length }].slice(-60),
+      };
+
+      const nextBandsDiag = { ...s.diagnostics.bands };
+      for (const sg of ev.sightings) {
+        const bandId = sg.band.toUpperCase();
+        const bDiag = nextBandsDiag[bandId];
+        if (bDiag) {
+          const prevPinStat = bDiag.pinStats[ev.pin];
+          const nextPinStat = {
+            heardCount: (prevPinStat?.heardCount ?? 0) + 1,
+            lastRssi: sg.rssi,
+            lastSnr: sg.snr,
+            lastSeen: now,
+            history: [...(prevPinStat?.history ?? []), { ts: now, rssi: sg.rssi, snr: sg.snr }].slice(-60),
+          };
+          nextBandsDiag[bandId] = {
+            ...bDiag,
+            pinStats: { ...bDiag.pinStats, [ev.pin]: nextPinStat },
+          };
+        }
+      }
+
+      return {
+        anchors: nextAnchors,
+        sightings: nextSightings,
+        diagnostics: {
+          ...s.diagnostics,
+          pins: { ...s.diagnostics.pins, [ev.pin]: nextPinDiag },
+          bands: nextBandsDiag,
+        },
+      };
     });
   },
 
@@ -499,13 +666,20 @@ export const useResQ = create<ResQState>()(
     set((s) => {
       let changed = false;
       const nextAnchors = { ...s.anchors };
-      const nextSightings = { ...s.sightings };
+      const nextDisconnectEvents = [...s.diagnostics.disconnectEvents];
 
       for (const id in nextAnchors) {
         const a = nextAnchors[id];
         if (a.online && a.lastSeen && now - a.lastSeen > 25000) {
           nextAnchors[id] = { ...a, online: false };
           changed = true;
+          nextDisconnectEvents.unshift({
+            id: nanoid(6),
+            ts: now,
+            type: "lost",
+            target: a.name,
+            message: `เสา ${a.name} ขาดการติดต่อ (> 25s)`,
+          });
         }
       }
 
@@ -515,11 +689,25 @@ export const useResQ = create<ResQState>()(
           if (now - sg.lastSeen > 30000) {
             nextSightings[id] = { ...sg, status: "silent" };
             changed = true;
+            nextDisconnectEvents.unshift({
+              id: nanoid(6),
+              ts: now,
+              type: "lost",
+              target: id,
+              message: `Band ${id} ขาดการติดต่อ (> 30s)`,
+            });
           }
         }
       }
 
-      return changed ? { anchors: nextAnchors, sightings: nextSightings } : s;
+      return changed ? {
+        anchors: nextAnchors,
+        sightings: nextSightings,
+        diagnostics: {
+          ...s.diagnostics,
+          disconnectEvents: nextDisconnectEvents.slice(0, 100),
+        },
+      } : s;
     });
   },
 }), {
