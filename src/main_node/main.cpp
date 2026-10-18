@@ -129,7 +129,7 @@ static bool connect_lora() {
   LoRa.setSignalBandwidth(LORA_BANDWIDTH);
   LoRa.setCodingRate4(LORA_CODING_RATE);
   LoRa.setSyncWord(LORA_SYNC_WORD);
-  LoRa.setTxPower(LORA_TX_POWER_DBM);
+  LoRa.setTxPower(LORA_FIXED_TX_POWER_DBM);
   LoRa.enableCrc();
   LoRa.receive();
   return true;

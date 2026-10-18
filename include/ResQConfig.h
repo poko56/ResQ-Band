@@ -26,9 +26,13 @@
 #define LORA_SPREADING_FACTOR  9
 #define LORA_BANDWIDTH         125E3
 #define LORA_CODING_RATE       5    // 4/5; raise to 8 (4/8) for more error correction
-// Fixed infrastructure (MainNode, ResQ-Pin, ResQ-Node) runs on mains/large
-// packs and transmits at the Ra-02's full 17 dBm (PA_BOOST).
+// Handheld (ResQ-Node) transmits at 17 dBm (PA_BOOST).
 #define LORA_TX_POWER_DBM      17
+// MainNode and ResQ-Pin are fixed and powered from mains / large packs, so they
+// use the SX1278's +20 dBm high-power mode (the LoRa library enables PA_DAC and
+// raises the over-current limit to 140 mA above 17 dBm). TX draws ~120 mA
+// peaks: the 3.3 V supply to the Ra-02 must handle that, or lower this to 17.
+#define LORA_FIXED_TX_POWER_DBM 20
 // The band is battery powered and its radio shares a rail with the MAX30102:
 // at 5 dBm HR read reliably but the signal barely got out from under debris.
 // The radio now sleeps except to transmit, so 10 dBm is affordable. If HR
