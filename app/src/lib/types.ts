@@ -275,6 +275,7 @@ export interface HubStatus {
     msg?: string;
     updatedAt?: number;
   };
+  buzzerMuted?: boolean;      // MainNode alarm buzzer muted (saved on the board)
   // WiFi state pushed by wifi_status events
   wifi?: { connected: boolean; ssid?: string; ip?: string; rssi?: number };
 }
@@ -285,8 +286,9 @@ export interface HubStatus {
 export type OtaStage = "idle" | "checking" | "checked" | "flashing" | "error" | "disabled";
 
 export type HubEvent =
-  | { t: "hello"; fw: string; board: string; main_id: string; lora_mhz: number; sf: number; tdma_cycle_ms: number; lora_ready?: boolean; ts: number }
-  | { t: "stats"; cycle: number; uptime_s: number; rx: number; dropped: number; bands: number; heap: number; lora_ready?: boolean; ts: number }
+  | { t: "hello"; fw: string; board: string; main_id: string; lora_mhz: number; sf: number; tdma_cycle_ms: number; lora_ready?: boolean; muted?: boolean; ts: number }
+  | { t: "stats"; cycle: number; uptime_s: number; rx: number; dropped: number; bands: number; heap: number; lora_ready?: boolean; muted?: boolean; ts: number }
+  | { t: "buzzer"; muted: boolean; ts: number }
   | { t: "beacon"; cycle: number; flags: number; ts: number }
   | { t: "lora_init_failed"; msg: string; pins?: Record<string, number>; ts: number }
   | { t: "lora_ready"; msg: string; ts: number }
@@ -299,7 +301,7 @@ export type HubEvent =
   | { t: "assignment"; band: string; score: number; pin: number; rssi: number; triage: number; reason: AssignReason; ts: number }
   | { t: "found"; node_id: string; band: string; outcome: FoundOutcome; rssi: number; ts: number }
   | { t: "ring_ack"; band: string; status: number; ts: number }
-  | { t: "pong"; main_id?: string; fw?: string; board?: string; cycle?: number; uptime_s?: number; lora_ready?: boolean; tdma_cycle_ms?: number; ts: number }
+  | { t: "pong"; main_id?: string; fw?: string; board?: string; cycle?: number; uptime_s?: number; lora_ready?: boolean; tdma_cycle_ms?: number; muted?: boolean; ts: number }
   | { t: "ack"; c: string }
   | { t: "err"; msg: string; c?: string }
   | { t: "fatal"; msg: string };
@@ -309,6 +311,7 @@ export type HubCommand =
   | { c: "manual_priority"; band: string; boost: number }
   | { c: "mark_rescued"; band: string }
   | { c: "clear_alarm" }
+  | { c: "set_mute"; muted: boolean }
   | { c: "ping" }
   | { c: "ota_check" }
   | { c: "ota_install" }

@@ -203,7 +203,7 @@ function dispatchHubEvent(ev: HubEvent): void {
 
   switch (ev.t) {
     case "hello":
-      s.setHubInfo({ mainId: ev.main_id, fw: ev.fw, cycleId: 0, loraReady: ev.lora_ready });
+      s.setHubInfo({ mainId: ev.main_id, fw: ev.fw, cycleId: 0, loraReady: ev.lora_ready, buzzerMuted: ev.muted });
       s.setHubState("connected");
       stopBootPolling();
       break;
@@ -212,6 +212,7 @@ function dispatchHubEvent(ev: HubEvent): void {
       s.setHubInfo({
         cycleId: ev.cycle,
         loraReady: ev.lora_ready,
+        buzzerMuted: ev.muted ?? s.hub.buzzerMuted,
         loraPacketsReceived: ev.rx,
         loraPacketsDropped: ev.dropped,
       });
@@ -222,6 +223,10 @@ function dispatchHubEvent(ev: HubEvent): void {
         cycle: ev.cycle,
         heap: ev.heap,
       });
+      break;
+
+    case "buzzer":
+      s.setHubInfo({ buzzerMuted: ev.muted });
       break;
 
     case "lora_init_failed":
@@ -294,6 +299,7 @@ function dispatchHubEvent(ev: HubEvent): void {
           fw:        ev.fw      ?? s.hub.fw,
           cycleId:   ev.cycle   ?? s.hub.cycleId,
           loraReady: ev.lora_ready,
+          buzzerMuted: ev.muted ?? s.hub.buzzerMuted,
         });
       }
       s.setHubState("connected");

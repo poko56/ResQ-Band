@@ -117,6 +117,17 @@ export function HubStatusBanner() {
 
       {/* Right: controls */}
       <div className="flex items-stretch border-l border-app-divider">
+        {hub.state === "connected" && hub.buzzerMuted !== undefined && (
+          <button
+            onClick={() => void sendCommand({ c: "set_mute", muted: !hub.buzzerMuted })}
+            title={hub.buzzerMuted
+              ? "เสียงเตือนของ MainNode ปิดอยู่ (ไฟยังกะพริบเตือน) - กดเพื่อเปิดเสียง"
+              : "กดเพื่อปิดเสียงเตือนของ MainNode (กดปุ่ม BOOT บนบอร์ดก็ได้)"}
+            className={`px-3 text-2xs tracking-wider uppercase border-r border-app-divider hover:bg-app-raised ${hub.buzzerMuted ? "text-status-warn" : "text-app-dim hover:text-app-text"}`}
+          >
+            {hub.buzzerMuted ? "🔕 เสียงปิด" : "🔔 เสียงเปิด"}
+          </button>
+        )}
         {hub.state === "connected" ? (
           <button onClick={() => void disconnectHub()} className="px-3 hover:bg-app-raised text-2xs tracking-wider uppercase text-app-dim hover:text-app-text">
             Disconnect

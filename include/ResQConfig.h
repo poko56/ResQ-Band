@@ -164,6 +164,7 @@
   // neopixelWrite() - DO NOT use digitalWrite() on this pin.
   #define PIN_LED_STATUS  48
   #define PIN_BUZZER      17   // local alarm when no ResQ-Node ack within X
+  #define PIN_BTN_MUTE    0    // onboard BOOT button: toggles buzzer mute
 
   // USB-CDC native (Serial = USB) handled by ARDUINO_USB_CDC_ON_BOOT=1
   #define USB_SERIAL_BAUD     115200

@@ -16,6 +16,7 @@
 #include <SPI.h>
 #include <LoRa.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
@@ -85,6 +86,7 @@ static uint32_t g_rx_count             = 0;
 static uint32_t g_rx_dropped           = 0;
 static uint32_t g_sos_pending_until_ms = 0;   // local alarm deadline
 static bool     g_local_alarm_active   = false;
+static bool     g_buzzer_muted         = false;   // saved in NVS, see set_buzzer_muted()
 static bool     g_lora_ready           = false;
 static int      g_pending_dispatch_idx = -1;
 
@@ -102,6 +104,10 @@ static struct {
 // Forward decls
 // ----------------------------------------------------------------------------
 static void   send_json_event(const JsonDocument& doc);
+static void   buzzer_begin();
+static void   beep(uint16_t ms, uint16_t freq_hz);
+static void   update_alarm_buzzer(uint32_t now);
+static void   poll_mute_button(uint32_t now);
 static void   handle_serial_command(const char* line, size_t len);
 static void   tx_beacon();
 static void   tx_assignment();
@@ -149,8 +155,15 @@ void setup() {
   // PIN_LED_STATUS is a WS2812 neopixel - DO NOT pinMode(OUTPUT) + digitalWrite.
   // Just use neopixelWrite(). First call sets pin mode internally.
   neopixelWrite(PIN_LED_STATUS, 0, 0, 40);   // boot indicator: dim blue
-  pinMode(PIN_BUZZER, OUTPUT);
-  digitalWrite(PIN_BUZZER, LOW);
+  buzzer_begin();
+  pinMode(PIN_BTN_MUTE, INPUT_PULLUP);
+  {
+    Preferences prefs;
+    prefs.begin("resq", true);
+    g_buzzer_muted = prefs.getBool("muted", false);
+    prefs.end();
+  }
+  if (!g_buzzer_muted) beep(150, 2500);   // boot beep: proves the buzzer works
 
   g_main_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
 
@@ -176,6 +189,7 @@ void setup() {
   doc["sf"]      = LORA_SPREADING_FACTOR;
   doc["tdma_cycle_ms"] = TDMA_CYCLE_MS;
   doc["lora_ready"]    = g_lora_ready;
+  doc["muted"]         = g_buzzer_muted;
   doc["ts"]      = (uint32_t)millis();
   send_json_event(doc);
 
@@ -306,6 +320,7 @@ void loop() {
     for (uint8_t i = 0; i < MAX_BANDS; ++i) if (g_bands[i].known) known++;
     doc["bands"]    = known;
     doc["heap"]     = ESP.getFreeHeap();
+    doc["muted"]    = g_buzzer_muted;
     doc["ts"]       = now;
     send_json_event(doc);
   }
@@ -318,11 +333,8 @@ void loop() {
     g_local_alarm_active = true;
     g_sos_pending_until_ms = 0;
   }
-  if (g_local_alarm_active) {
-    digitalWrite(PIN_BUZZER, (now / 250) & 1);
-  } else {
-    digitalWrite(PIN_BUZZER, LOW);
-  }
+  update_alarm_buzzer(now);
+  poll_mute_button(now);
 
   // --- Drain serial command queue -------------------------------------------
   static char   line_buf[512];
@@ -342,6 +354,84 @@ void loop() {
       line_len = 0;  // overflow - drop line
     }
   }
+}
+
+// ============================================================================
+// Buzzer
+// ----------------------------------------------------------------------------
+// A passive piezo is silent on a plain HIGH and needs a tone; an active buzzer
+// beeps on DC. BUZZER_PASSIVE picks the drive (set per env in platformio.ini).
+// The operator can mute it from the web or with the BOOT button; the alarm
+// LED keeps strobing while muted.
+// ============================================================================
+#ifndef BUZZER_PASSIVE
+#define BUZZER_PASSIVE 0
+#endif
+static constexpr uint8_t BUZZER_LEDC_CH = 0;
+
+static void buzzer_tone(uint16_t freq_hz) {   // 0 = silent
+#if BUZZER_PASSIVE
+  static uint16_t s_freq = 0xFFFF;
+  if (freq_hz == s_freq) return;
+  s_freq = freq_hz;
+  ledcWriteTone(BUZZER_LEDC_CH, freq_hz);
+#else
+  digitalWrite(PIN_BUZZER, freq_hz ? HIGH : LOW);
+#endif
+}
+
+static void buzzer_begin() {
+#if BUZZER_PASSIVE
+  ledcSetup(BUZZER_LEDC_CH, 2000, 8);
+  ledcAttachPin(PIN_BUZZER, BUZZER_LEDC_CH);
+#else
+  pinMode(PIN_BUZZER, OUTPUT);
+#endif
+  buzzer_tone(0);
+}
+
+static void beep(uint16_t ms, uint16_t freq_hz) {
+  buzzer_tone(freq_hz);
+  delay(ms);
+  buzzer_tone(0);
+}
+
+static void send_buzzer_state() {
+  JsonDocument d;
+  d["t"]     = "buzzer";
+  d["muted"] = g_buzzer_muted;
+  d["ts"]    = (uint32_t)millis();
+  send_json_event(d);
+}
+
+static void set_buzzer_muted(bool muted) {
+  g_buzzer_muted = muted;
+  Preferences prefs;
+  prefs.begin("resq", false);
+  prefs.putBool("muted", muted);
+  prefs.end();
+  if (!muted) beep(80, 2500);   // audible confirmation that sound is back on
+  send_buzzer_state();
+}
+
+// Siren while the local alarm is active and not muted.
+static void update_alarm_buzzer(uint32_t now) {
+  if (!g_local_alarm_active || g_buzzer_muted) { buzzer_tone(0); return; }
+#if BUZZER_PASSIVE
+  buzzer_tone(((now / 250) & 1) ? 2800 : 2000);   // two-tone siren
+#else
+  buzzer_tone((now / 250) & 1);
+#endif
+}
+
+// BOOT button toggles mute (debounced, on release).
+static void poll_mute_button(uint32_t now) {
+  static bool     s_was_down = false;
+  static uint32_t s_down_ms  = 0;
+  const bool down = digitalRead(PIN_BTN_MUTE) == LOW;
+  if (down && !s_was_down) s_down_ms = now;
+  if (!down && s_was_down && now - s_down_ms > 50) set_buzzer_muted(!g_buzzer_muted);
+  s_was_down = down;
 }
 
 // ============================================================================
@@ -754,6 +844,10 @@ static void handle_serial_command(const char* line, size_t len) {
     g_sos_pending_until_ms = 0;
     JsonDocument r; r["t"] = "ack"; r["c"] = "mark_rescued"; send_json_event(r);
   }
+  else if (!strcmp(cmd, "set_mute")) {
+    set_buzzer_muted(doc["muted"] | false);
+    JsonDocument r; r["t"] = "ack"; r["c"] = "set_mute"; send_json_event(r);
+  }
   else if (!strcmp(cmd, "clear_alarm")) {
     g_local_alarm_active = false;
     g_sos_pending_until_ms = 0;
@@ -887,6 +981,7 @@ static void handle_serial_command(const char* line, size_t len) {
     r["uptime_s"]     = (uint32_t)(millis() / 1000);
     r["lora_ready"]   = g_lora_ready;
     r["tdma_cycle_ms"] = TDMA_CYCLE_MS;
+    r["muted"]        = g_buzzer_muted;
     r["ts"]           = (uint32_t)millis();
     send_json_event(r);
 
