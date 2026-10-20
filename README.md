@@ -1,241 +1,178 @@
 <div align="center">
 
-# 🛟 ResQ-Band
-**The IoT Wearable Emergency Localization and Survival Triage System** *ระบบกำไลข้อมืออัจฉริยะชี้เป้าและคัดกรองผู้รอดชีวิตใต้ซากอาคารถล่มสำหรับงาน US&R*
+# 🛟 ResQ-Band v2.0
+**IoT Wearable Emergency Localization and Survival Triage System**
+*ระบบกำไลข้อมือชี้เป้าและคัดกรองผู้รอดชีวิตใต้ซากอาคารถล่ม สำหรับงาน US&R*
 
 </div>
 
 ---
 
-## 📌 Introduction (บทนำ)
+## 📌 ภาพรวม
 
-จากปัญหาอุบัติเหตุอาคารและสิ่งก่อสร้างถล่ม **"เวลาทองคำ (Golden Hour)"** คือสิ่งสำคัญที่สุดในการช่วยชีวิต ทว่าโครงสร้างคอนกรีตและเหล็กเส้นมักดักจับและสะท้อนคลื่นวิทยุทั่วไป ทำให้ระบบระบุตำแหน่งมาตรฐานไม่สามารถทำงานได้ 
+ResQ-Band เป็นระบบกำไลข้อมือที่วัดชีพจรของผู้สวมใส่และส่งสัญญาณผ่าน **LoRa 433 MHz** ซึ่งทะลุสิ่งกีดขวางได้ดีกว่า WiFi/Bluetooth
+เสารับสัญญาณรอบพื้นที่ช่วยบอกตำแหน่งโดยประมาณ ศูนย์สั่งการจัดลำดับความเร่งด่วน (triage) และสั่งงานทีมกู้ภัย
+ส่วนเครื่องเดินค้นหาพาทีมเข้าใกล้ผู้ประสบภัยด้วยความแรงสัญญาณ และสั่งให้กำไลส่งเสียงได้
 
-**ResQ-Band** คือโปรเจกต์ Open-Source ฮาร์ดแวร์และซอฟต์แวร์ที่ผสานเทคโนโลยี **Ultra-Wideband (UWB)** สำหรับการระบุตำแหน่งความแม่นยำสูงในภาวะปกติ และ **LoRa (433 MHz)** สำหรับการส่งสัญญาณทะลุทะลวงซากปรักหักพังในภาวะฉุกเฉิน ทำงานร่วมกับระบบประเมินสัญญาณชีพ เพื่อช่วยให้ทีมกู้ภัย (Urban Search & Rescue) สามารถชี้เป้าหมายและช่วยเหลือผู้รอดชีวิตได้อย่างแม่นยำที่สุด
-
----
-
-## ✨ Features (จุดเด่นของระบบ)
-
-* 📍 **Precision Pre-Collapse Tracking:** ใช้คลื่น UWB ประเมินพิกัดแบบ Real-time ระดับเซนติเมตรขณะอาคารยังไม่ถล่ม (Smart Zone Attendance)
-* 💥 **The Fall Trigger:** อัลกอริทึมตรวจจับสภาวะตกอิสระ (Free-fall) หรือแรงกระแทกมหาศาล (High-G) เพื่อล็อกพิกัดสุดท้าย (Last Known Position) ก่อนซากอาคารพังทับ
-* 📡 **Deep-Penetration SOS:** ส่งสัญญาณขอความช่วยเหลือทะลวงซากคอนกรีตด้วยคลื่นความถี่ต่ำ LoRa 433 MHz
-* 🕸️ **Underground Mesh Relay:** ระบบทวนสัญญาณใยแมงมุม (ESP-NOW) ให้กำไลใต้ซากตึกช่วยส่งต่อสัญญาณกันเองเพื่อเพิ่มระยะส่ง
-* 🫀 **Survival Triage Logic:** คัดกรองผู้บาดเจ็บอัตโนมัติด้วยเซนเซอร์วัดชีพจรและการเคาะรหัสขอความช่วยเหลือ (Tap-to-SOS)
-* 🎯 **Last-Meter UWB Pinpointing:** เมื่อทีมกู้ภัยเข้าใกล้พื้นที่เป้าหมาย เครื่องค้นหาพกพาจะสลับจาก LoRa RSSI ไปใช้ **UWB Ranging (Two-Way Ranging)** เพื่อระบุระยะทาง-ทิศทางไปยังกำไลใต้ซากอาคารด้วยความแม่นยำระดับ **10–30 ซม.** ช่วยให้ขุดเจาะได้ตรงจุดโดยไม่รบกวนโครงสร้างที่อาจถล่มซ้ำ
+> **v2.0 เทียบกับเอกสารรุ่นแรก:** ตัดโมดูล **UWB (DW3000)** และ **MPU6050 (ตรวจการล้ม)** ออก
+> SOS เกิดจากชีพจรวิกฤตแทน การชี้เป้าระยะใกล้ใช้ LoRa RSSI แทน UWB และยังไม่มี mesh relay ระหว่างกำไล (ESP-NOW)
+> ดูรายละเอียดใน [ข้อจำกัดที่ทราบ](#-ข้อจำกัดที่ทราบ)
 
 ---
 
-## 🏗️ System Architecture (สถาปัตยกรรมระบบ)
+## 🏗️ สถาปัตยกรรม
 
 ```text
-[ ภาวะปกติ: UWB Precision ]
-กำไลข้อมือ (UWB Tag) <---> เสารับสัญญาณ (UWB Anchors) ---> Firebase (พิกัด Real-time)
-
-[ ภาวะตึกถล่ม: LoRa Penetration & Mesh ]
-กำไลข้อมือ (LoRa) ---> กำไลข้างเคียง (ESP-NOW Relay) ---> เสารับสัญญาณภายนอก (LoRa Gateway)
-      |
-      v
-เครื่องค้นหาพกพาของทีมกู้ภัย (LoRa Yagi Antenna) ---> วิเคราะห์และชี้เป้าหมายภาคพื้นดิน
-
-[ ภาวะค้นหาระยะใกล้: UWB Last-Meter Pinpoint ]
-เครื่องค้นหาพกพา (UWB Initiator) <===Two-Way Ranging===> กำไลข้อมือ (UWB Responder)
-      |
-      v
-แสดงระยะทาง (cm) + ทิศทาง (PDoA Compass) + Haptic Feedback บนหน้าจอ OLED
+ กำไล (Band-Node) ──LoRa──┬──────────────────────────────► MainNode ──USB──► เว็บศูนย์สั่งการ
+   ชีพจร, SpO₂ (โดยประมาณ)  │                                (ESP32-S3)     (Chrome, WebSerial)
+   buzzer                  ├──► เสา ResQ-Pin ×4 ──LoRa──────►    ▲
+                           │    (รายงาน RSSI ของกำไลที่ได้ยิน)    │ คำสั่ง: ASSIGNMENT, RING
+                           └──► เครื่องเดินค้นหา ResQ-Node ◄──────┘
+                                (WiFi AP 192.168.4.1: เรดาร์ระยะ, สั่งกำไลส่งเสียง, แจ้งผล FOUND)
 ```
 
----
+ทุกอุปกรณ์ใช้ช่อง LoRa เดียวกัน แบ่งเวลาแบบ **TDMA**: รอบละ 10 วินาที แบ่งเป็น 10 slot slot ละ 1 วินาที
 
-## 🛠️ Hardware Components (อุปกรณ์ที่ใช้พัฒนา)
+| Slot | ผู้ส่ง | ข้อมูล |
+|---|---|---|
+| 0 | MainNode | BEACON (ให้ทุกเครื่องซิงก์เวลา) |
+| 1–2 | กำไล #1, #2 | HEARTBEAT (ชีพจร, SpO₂, triage) |
+| 3–6 | เสา 1–4 | PIN_SIGHTING (กำไลที่ได้ยิน + RSSI) |
+| 7 | MainNode | ASSIGNMENT (สั่งทีมไปหากำไลที่เร่งด่วนสุด) |
+| 8 | ResQ-Node | FOUND (แจ้งผลการช่วย) |
+| 9 | ฉุกเฉิน | SOS ส่งได้ทันทีโดยไม่รอ slot |
 
-โปรเจกต์นี้แบ่งฮาร์ดแวร์ออกเป็น 3 ส่วนหลัก (จำนวนขึ้นอยู่กับการสเกลระบบหน้างาน):
-
-### 1. Smart Wristband Node (กำไลข้อมือ)
-* **Microcontroller:** `ESP32-C3` (บอร์ดขนาดเล็ก ประหยัดพลังงาน)
-* **Penetration Comm:** `Ra-02 LoRa 433 MHz` + `เสาสปริง 433 MHz`
-* **Precision Comm:** `โมดูล UWB (เช่น DW3000)` สำหรับระบุพิกัดความแม่นยำสูง
-* **Sensors:** `MPU6050` (3-Axis Accelerometer) และ `GY-MAX30102` (Heart Rate & SpO2)
-* **Misc:** แบตเตอรี่ LiPo 3.7V, โมดูลชาร์จ TP4056, เรกูเลเตอร์ AMS1117, และ Active Buzzer 3.3V
-* **Enclosure:** เคสพิมพ์ 3 มิติ วัสดุ TPU ยืดหยุ่นและกันกระแทก
-
-### 2. Gateway Pillar (เสารับสัญญาณรอบอาคาร)
-* **Microcontroller:** `ESP32 Devkit`
-* **Modules:** `Ra-02 LoRa 433 MHz` และ `UWB Anchor Module`
-* **Antenna:** `เสายางทรงแท่ง 433 MHz (Omni-directional, แนะนำ 7 dBi)` พร้อมสายแปลง IPEX to SMA
-* **Power:** ระบบไฟสำรองอิสระ (Battery 18650 Pack)
-
-### 3. Handheld Sweeper (เครื่องรับสัญญาณพกพาสำหรับกู้ภัย)
-* **Microcontroller:** `ESP32 Devkit` + `Ra-02 LoRa 433 MHz`
-* **UWB Pinpoint Module:** `DW3000 (พร้อม PDoA Antenna Pair)` สำหรับวัดระยะและทิศทางระยะใกล้แบบความแม่นยำสูง
-* **Display:** `OLED Display 1.3" (I2C, SH1106)` แสดง RSSI/SNR ของ LoRa, ระยะ UWB (cm), เข็มทิศชี้ทิศทาง และสถานะ Triage
-* **Antenna:** `เสาอากาศ Yagi 433 MHz` (แบบกำหนดทิศทาง) สำหรับแกะรอยและชี้เป้าหมายระยะไกล
-* **Feedback:** `Vibration Motor` (Haptic) และ `Buzzer Piezo` แจ้งเตือนระยะใกล้-ไกลแบบ Geiger Counter
-* **Controls:** ปุ่มสลับโหมด `LoRa Sweep ↔ UWB Pinpoint` และปุ่ม Lock-on Target ID
-* **Power:** `Battery 18650 x 2` พร้อม BMS, ทนใช้งานต่อเนื่อง ≥ 8 ชม. ในภาคสนาม
+**การตั้งค่าวิทยุ** (`include/ResQConfig.h`):
+- SF9 / 125 kHz / CR 4/5
+- MainNode และเสา 20 dBm, เครื่องเดินค้นหา 17 dBm, กำไล 10 dBm
+- **ทุกเครื่องต้องใช้ SF เดียวกัน** ถ้าเปลี่ยนต้อง flash ใหม่ทุกเครื่อง
 
 ---
 
-## 🎯 UWB Last-Meter Search (การค้นหาตำแหน่งระยะใกล้ด้วย Ultra-Wideband)
+## 🔧 อุปกรณ์และขาเชื่อมต่อ
 
-เมื่อเดินทางถึง "พื้นที่ต้องสงสัย" จากการกวาด LoRa Yagi ปัญหาถัดมาคือ **RSSI จะ saturate** และ multipath reflection จากเศษโลหะ/คอนกรีตจะทำให้ทิศทางผิดเพี้ยน Handheld Sweeper จึงสลับโหมดเข้าสู่ UWB Pinpoint เพื่อชี้เป้าระยะใกล้
-
-### 🔬 หลักการทำงานทางเทคนิค
-
-UWB ทำงานในย่านความถี่ **3.1–10.6 GHz** ด้วย bandwidth กว้างกว่า 500 MHz ส่งสัญญาณเป็นพัลส์สั้นมาก (< 2 ns) ทำให้:
-
-| คุณสมบัติ | ข้อได้เปรียบในงาน US&R |
+### กำไล (Band-Node) — ESP32 DevKit
+| ส่วนประกอบ | ขา |
 |---|---|
-| **High Time Resolution** | วัดเวลาเดินทางของคลื่นได้แม่นยำระดับ sub-nanosecond แปลงเป็นระยะทาง ±10 ซม. |
-| **Resistance to Multipath** | พัลส์สั้นทำให้แยกแยะคลื่นตรง (LoS) ออกจากคลื่นสะท้อนได้ ลดความผิดพลาดในพื้นที่ที่มีโลหะ |
-| **Low Spectral Density** | กำลังส่งต่ำมาก (< -41.3 dBm/MHz) ไม่รบกวนวิทยุสื่อสารของทีมกู้ภัย |
-| **Penetration ระยะใกล้** | ทะลุคอนกรีต/ผนังเบาได้ในระยะ 0.5–2 ม. (ขึ้นกับความหนาและความชื้น) เพียงพอสำหรับการขุดชั้นสุดท้าย |
+| LoRa Ra-02 (SX1278) | SCK 18, MISO 19, MOSI 23, NSS 5, RST 14, DIO0 2 (ไฟ **3.3V**) |
+| MAX30102 (ชีพจร/SpO₂) | SDA 21, SCL 22 |
+| Buzzer (passive piezo) | 25 |
+| LED | 13 |
+| วัดแบต (ไม่บังคับ) | 34 ผ่านตัวต้านทานแบ่งแรงดัน 2 × 100 kΩ แล้ว build ด้วย `-D HAS_VBAT_DIVIDER=1` |
 
-### 📐 อัลกอริทึมการวัด
+- **ประหยัดไฟและไม่รบกวนการวัดชีพจร:** วิทยุของกำไลหลับเกือบตลอด ตื่นแค่ตอนส่ง heartbeat ใน slot ของตัวเอง แล้วฟังต่อประมาณ 1.2 วินาทีเพื่อรับคำสั่ง RING
+- **การซิงก์เวลา:** ทุก 6 รอบจะตื่นสั้น ๆ เพื่อซิงก์กับ beacon อีกครั้ง
 
-โหมด UWB ใน Handheld ใช้สองเทคนิคควบคู่กัน:
+### เสา (ResQ-Pin) ×4 — ESP32 DevKit
+- **LoRa:** ขาเดียวกับกำไล
+- **LED:** 13
+- **การระบุตัว:** เสาระบุตัวเองจาก MAC (ตาราง `KNOWN_PILLARS` ใน `src/resq_pin/main.cpp`) บอร์ดที่ไม่อยู่ในตารางกำหนด slot ได้จากหน้า **Anchors** บนเว็บ
 
-1. **Two-Way Ranging (TWR / DS-TWR)**
-   - Handheld (Initiator) ส่ง Poll → กำไล (Responder) ตอบ Response → Handheld ส่ง Final
-   - คำนวณ `Time-of-Flight (ToF)` แบบสองทาง ทำให้ไม่ต้อง sync clock ระหว่างอุปกรณ์
-   - ระยะ = `(ToF × c) / 2` โดย c คือความเร็วแสง
-   - ความแม่นยำ ±10 ซม. ในระยะ 0–30 ม.
-
-2. **Phase Difference of Arrival (PDoA) — Angle of Arrival**
-   - ใช้เสาอากาศ UWB คู่ (spacing ≈ λ/2) วัดความต่างเฟสของคลื่นที่มาถึง
-   - คำนวณมุม `θ = arcsin((Δφ × λ) / (2π × d))`
-   - ให้ผลเป็น **เข็มทิศชี้ทิศทาง** (Arrow on OLED) ไปยังเป้าหมาย
-   - ครอบคลุมมุม ±45° ความละเอียด ~5°
-
-### 🧭 Workflow การใช้งานภาคสนาม
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 1: WIDE SEARCH (LoRa Yagi + RSSI Heatmap)                 │
-│  ────────────────────────────────────────────────                │
-│  เดินกวาดรอบซากอาคาร → หาทิศที่ RSSI สูงสุด → จดพิกัด GPS         │
-│  ระยะ: 50–500 ม.   ความแม่นยำ: ±5–20 ม.                          │
-└─────────────────────────────────────────────────────────────────┘
-                            ↓ (RSSI > -70 dBm = ใกล้แล้ว)
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 2: PINPOINT MODE (กดปุ่มสลับเป็น UWB)                      │
-│  ────────────────────────────────────────────────                │
-│  Handheld เริ่ม TWR กับ Target ID ที่ Lock-on                    │
-│  ระยะ: 0–30 ม.   ความแม่นยำ: ±10 ซม.                             │
-│  OLED แสดง: [ระยะ 4.27 m] [→ ทิศทาง 23°] [Pulse ♥ 78 BPM]       │
-└─────────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────────┐
-│  STEP 3: DIG-POINT CONFIRM (Haptic Geiger Mode)                 │
-│  ────────────────────────────────────────────────                │
-│  Vibration ถี่ขึ้นเมื่อใกล้ขึ้น (เหมือนเครื่องตรวจจับโลหะ)         │
-│  เมื่อระยะ < 1 ม. → ปักธง / Mark Dig Point ให้ทีมขุดเจาะ          │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### ⚠️ ข้อจำกัดและการรับมือ
-
-| ข้อจำกัด | วิธีรับมือในการออกแบบ |
+### เครื่องเดินค้นหา (ResQ-Node) — ESP32 DevKit
+| ส่วนประกอบ | ขา |
 |---|---|
-| UWB ทะลุคอนกรีตเสริมเหล็กหนา > 30 ซม. ได้ลดลงมาก | ใช้ LoRa เป็นตัวยืนยันการ "มีสัญญาณชีพ" ก่อน แล้วใช้ UWB เพื่อชี้จุดขุดสุดท้าย |
-| ต้องมีพลังงานในกำไลเหลือพอสำหรับ UWB Ranging | กำไลจะอยู่ใน Deep-sleep แล้ว wake-up ตามคำสั่ง LoRa Wake Packet ก่อนเปิด UWB |
-| PDoA แม่นเฉพาะใน Line-of-Sight | ใช้การเดินเก็บ Multiple Bearings (Triangulation) เพื่อยืนยันตำแหน่ง |
-| คลื่น 6.5 GHz ถูกน้ำ/ดินชื้นดูดซับ | แสดง Confidence Score บนหน้าจอ ถ้าต่ำให้กู้ภัยใช้วิจารณญาณร่วม |
+| LoRa | เหมือนกำไล |
+| มอเตอร์สั่น | 25 |
+| Buzzer (piezo) | 26 |
+| ปุ่ม MODE (สั่งกำไลส่งเสียง) | 32 |
+| ปุ่ม FOUND (กดค้าง 1 วิ = ช่วยออกมาแล้ว) | 33 |
 
-### 🔌 Pinout & Integration หลัก (ESP32 ↔ DW3000)
+หน้าจอ: ต่อ WiFi `ResQ-Locator` (รหัส `12345678`) แล้วเปิด **http://192.168.4.1**
 
-```text
-DW3000          ESP32 Devkit
-─────────       ─────────────
-VCC      ───→   3.3V (ผ่าน LDO แยกจาก LoRa เพื่อลด noise)
-GND      ───→   GND
-SPI MISO ───→   GPIO 19
-SPI MOSI ───→   GPIO 23
-SPI SCK  ───→   GPIO 18
-SPI CS   ───→   GPIO 4   (แยก bus จาก Ra-02 ที่ใช้ GPIO 5)
-IRQ      ───→   GPIO 34
-RST      ───→   GPIO 27
-```
+### ศูนย์สั่งการ (MainNode) — ESP32-S3 DevKitC
+| ส่วนประกอบ | ขา |
+|---|---|
+| LoRa | SCK 12, MISO 13, MOSI 11, NSS 10, RST 5, DIO0 4 |
+| LED RGB (WS2812) | 48 |
+| Buzzer (passive) | 17 |
+| ปุ่ม BOOT = เปิด/ปิดเสียง | 0 |
 
-> 💡 **Tip:** ใช้ SPI bus เดียวกับ Ra-02 ได้ แต่ต้องระวัง CS แยกขา และจัดลำดับ transaction ให้ชัดเจน เพื่อไม่ให้ UWB ranging ผิดจังหวะตอน LoRa กำลังรับ-ส่ง
-
----
-## 💻 Software & Services
-
-* **Embedded C/C++:** พัฒนาผ่าน VS Code (PlatformIO) หรือ Arduino IDE
-* **Database & Dashboard:** Firebase Hosting (static export) สำหรับเว็บ dispatcher; WebSerial (Chrome/Edge) bridge ระหว่าง browser ↔ MainNode ผ่าน USB
-* **Firmware deploy:** USB flash ตรง ๆ (`pio run -e <env> -t upload`) **หรือ** OTA ผ่าน GitHub Releases (ดูหัวข้อถัดไป)
-* **3D CAD:** SolidWorks หรือ Fusion 360 สำหรับออกแบบเคสอุปกรณ์
+ต่อ USB เข้าคอมพิวเตอร์ เว็บคุยกับบอร์ดผ่าน USB-CDC ด้วย JSON บรรทัดละ event
 
 ---
 
-## 🔄 OTA via GitHub Releases
-
-ระบบ deploy firmware ใหม่ทั้งฝูง โดยไม่ต้องถอดอุปกรณ์เข้าคอม
-
-### 🗺️ Flow
-
-```
-git tag v0.3.0 + git push --tags
-        │
-        ▼
-GitHub Actions (.github/workflows/release.yml)
-        │  build ทั้ง 4 envs
-        │  upload main_node.bin / band_node.bin / resq_pin.bin / resq_node.bin
-        ▼
-Release v0.3.0 (พร้อม manifest.json)
-        │
-        ├──► MainNode/Pin/Node: WiFi → GitHub API releases/latest
-        │      ถ้า tag ใหม่กว่า FW_VERSION → HTTPUpdate → flash → reboot
-        │
-        └──► Band-Node: USB-only (battery-sensitive, default `ENABLE_OTA=0`)
-```
-
-### ⚙️ Setup ครั้งเดียว
-
-1. Copy `include/secrets.example.h` → `include/secrets.h` (gitignored แล้ว)
-2. ใส่ WiFi credentials:
-   ```cpp
-   #define WIFI_SSID     "MyHomeWiFi"
-   #define WIFI_PASSWORD "MyPassword"
-   ```
-3. Build + flash อุปกรณ์ครั้งแรก: `pio run -e main_node -t upload`
-4. หลังจากนี้ MainNode/Pin/Node จะเช็คอัพเดททุก 6 ชั่วโมง
-
-### 🚀 ปล่อย firmware version ใหม่
+## 💻 Firmware (PlatformIO)
 
 ```bash
-# bump FW_VERSION ใน platformio.ini ก่อน (เช่น "0.3.0")
-git tag v0.3.0
-git push --tags
-# → GitHub Actions build, attach .bin, สร้าง Release อัตโนมัติ
-# → MainNode จะรู้ตอน check ครั้งต่อไป (web banner ขึ้น "Install v0.3.0")
+pio run -e main_node   -t upload     # ศูนย์สั่งการ
+pio run -e resq_node   -t upload     # เครื่องเดินค้นหา
+pio run -e resq_pin_1  -t upload     # เสา 1 (เสา 2–4: resq_pin_2 … resq_pin_4)
+pio run -e band_node   -t upload     # กำไล
 ```
 
-### 🖥️ Manual trigger จากเว็บ
+- **slot ของกำไล:** กำไลเลือก slot จาก device ID ที่อยู่ในตาราง `KNOWN_BANDS` ใน `src/band_node/main.cpp` บอร์ดใหม่ที่ไม่อยู่ในตารางใช้ค่า `BAND_INDEX` (env `band_node_2` คือ slot 2)
+- **ถ้า pio เลือกพอร์ตผิด** (เช่นหูฟัง Bluetooth): เพิ่ม `--upload-port /dev/cu.usbserial-XXXX`
+- **ก่อน flash MainNode:** กด **Disconnect** บนเว็บก่อน เพราะเว็บจะจับพอร์ตอัตโนมัติ
+- **ทดสอบ protocol บนคอมพิวเตอร์:**
+  ```bash
+  pio test -e native
+  ```
 
-- เปิดเว็บ dispatcher → ต่อ USB → banner มีปุ่ม **OTA check**
-- ถ้ามี version ใหม่ → ปุ่ม **Install v0.x.y** ขึ้น
-- กดยืนยัน → MainNode pull .bin → flash → reboot (web reconnect อัตโนมัติ)
-
-### 🔧 Per-device toggle
-
-`ENABLE_OTA` macro ใน `include/ResQConfig.h`:
-- MainNode/Pin/Node = 1 (default)
-- Band-Node = 0 (default — กิน battery)
-- Override ใน `build_flags`: `-D ENABLE_OTA=0` หรือ `-D ENABLE_OTA=1`
-
-### 🔒 ความปลอดภัย
-
-- ตอนนี้ใช้ `WiFiClientSecure::setInsecure()` — ข้าม cert verification (เร็ว/ง่าย/ปลอดภัยน้อยกว่า)
-- Production ควร pin cert ของ `api.github.com` + `objects.githubusercontent.com`
-- HTTPUpdate verify MD5/SHA ของ .bin ก่อน flash อยู่แล้ว
-- A/B OTA partition: flash ลง slot สำรอง → ถ้า boot ใหม่ fail → rollback อัตโนมัติ
+### OTA
+- **ช่องทาง:** MainNode, เสา และเครื่องเดินค้นหาดึง firmware ใหม่จาก GitHub Releases ผ่าน WiFi ได้ ต้องใส่ `include/secrets.h` (ดู `secrets.example.h`)
+- **การปล่อยเวอร์ชัน:** push tag `vX.Y.Z` แล้ว GitHub Actions จะ build และสร้าง Release ให้
+- **กำไล:** ปิด OTA ไว้เพื่อประหยัดแบต ใช้ flash ผ่าน USB เท่านั้น
 
 ---
 
-## 🤝 Contributing
-โปรเจกต์นี้ยินดีรับการปรับปรุงและพัฒนาต่อยอดจากนักพัฒนาทุกท่าน หากพบปัญหาหรือมีข้อเสนอแนะ สามารถเปิด Issue หรือส่ง Pull Request ได้เลยครับ
+## 🌐 เว็บศูนย์สั่งการ (`app/`, Next.js)
+
+```bash
+cd app && npm install && npm run dev        # http://localhost:3000
+```
+
+Deploy: `firebase deploy --only hosting` → https://resq-band-app.web.app
+
+| หน้า | ใช้ทำอะไร |
+|---|---|
+| **Live** | แผนที่ตำแหน่งกำไลและเสา, สรุป triage, รายชื่อ |
+| **Roster** | ลงทะเบียนผู้สวมกำไล (ชื่อ, รูป, ข้อมูลการแพทย์), export `roster.json` ให้เครื่องเดินค้นหา |
+| **Anchors** | วางเสาบนแผนที่, กำหนด slot ให้เสาใหม่ |
+| **Dispatch** | คิวผู้ประสบภัยเรียงตามความเร่งด่วน, สั่งกำไลส่งเสียง |
+| **Log** | เหตุการณ์ทั้งหมด (SOS, สั่งงาน, ผลการช่วย) |
+| **Dev Tools** | ภาพรวมการเชื่อมต่อ, Packet Console, TDMA timeline, Range Test (ปรับเทียบระยะจาก RSSI), Coverage map |
+
+- **การเชื่อมต่อ:** ใช้ Chrome/Edge (WebSerial) กด **Connect USB** แล้วเลือก MainNode ครั้งแรกครั้งเดียว หลังจากนั้นเว็บจะต่อเองอัตโนมัติ ทั้งตอนรีโหลดและตอน MainNode รีเซ็ต
+- **ข้อมูลที่จำไว้ในเครื่อง:** รายชื่อ, ตำแหน่งเสา, กำไลที่เห็น และ Log เก็บใน browser จึงอยู่ครบหลังรีโหลด
+- **โหมด Demo:** จำลองข้อมูลตามตาราง TDMA จริง ใช้ทดลองได้โดยไม่ต้องมีฮาร์ดแวร์
+
+### Triage
+| สี | เงื่อนไข |
+|---|---|
+| ⚫ ไม่พบชีพจร | HR = 0 (ไม่ได้สวม หรือวัดชีพจรไม่ได้) |
+| 🔴 วิกฤต | HR < 40 หรือ > 150, SpO₂ ≤ 85 % |
+| 🟡 เฝ้าระวัง | HR < 55 หรือ > 110, SpO₂ ≤ 94 % |
+| 🟢 ปลอดภัย | นอกเหนือจากนี้ |
+
+กำไลจะส่ง **SOS_VITALS** ทันทีเมื่อชีพจรวิกฤต และ buzzer ดัง 3 วินาที
+
+---
+
+## ⚠️ ข้อจำกัดที่ทราบ
+
+- **SpO₂ เป็นค่าประมาณ:** คำนวณด้วยวิธี ratio-of-ratios และยังไม่ได้ปรับเทียบกับเครื่องวัดทางการแพทย์ ใช้เป็นแนวโน้มเท่านั้น
+- **แบตเตอรี่แสดง "--":** จนกว่าจะต่อวงจรแบ่งแรงดันและ build ด้วย `HAS_VBAT_DIVIDER=1`
+- **ไม่มีการตรวจจับการล้ม:** ไม่มี MPU6050 แล้ว
+- **ไม่มี UWB:** ระยะบนเครื่องเดินค้นหาประมาณจาก RSSI ซึ่งคลาดได้หลายเมตร ควรปรับเทียบด้วยแท็บ Range Test ก่อนใช้งานจริง
+- **ไม่มี mesh relay ระหว่างกำไล:** กำไลต้องอยู่ในระยะของเสาหรือ MainNode เอง
+- **Firebase sync ปิดอยู่:** เพราะยังไม่ได้ใส่ `NEXT_PUBLIC_FIREBASE_API_KEY` เว็บจึงทำงานแบบออฟไลน์ในเครื่องเดียว
+- **กำลังส่ง 17–20 dBm อาจเกินเพดานที่ กสทช. กำหนดสำหรับย่าน 433 MHz:** ควรตรวจสอบก่อนใช้งานจริง
+
+---
+
+## 📁 โครงสร้าง
+
+```text
+include/ResQConfig.h        ค่าวิทยุ, TDMA, เกณฑ์ triage, ขาของทุกบอร์ด
+lib/ResQProtocol/           โครงสร้าง packet + CRC16 (ใช้ร่วมทุกอุปกรณ์)
+lib/ResQOTA/                OTA จาก GitHub Releases
+src/band_node/              กำไล
+src/resq_pin/               เสา
+src/resq_node/              เครื่องเดินค้นหา + WebUI
+src/main_node/              ศูนย์สั่งการ
+test/                       unit test ของ protocol (pio test -e native)
+app/                        เว็บศูนย์สั่งการ (Next.js, static export)
+```
 
 ## 📄 License
-Distributed under the MIT License. See `LICENSE` for more information.
+MIT
