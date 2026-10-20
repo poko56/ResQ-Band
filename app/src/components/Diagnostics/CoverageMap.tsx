@@ -8,6 +8,7 @@
 // ============================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { rssiToDistanceM, useResQ } from "@/lib/store";
@@ -56,8 +57,8 @@ export default function CoverageMap() {
   const bandDiag = useResQ((s) => s.diagnostics.bands);
   const model = useResQ((s) => s.pathLoss);
 
-  const [showRings, setShowRings] = useState(true);
-  const [maxAgeS, setMaxAgeS] = useState(60);
+  const [showRings, setShowRings] = useSessionState("cov:rings", true);
+  const [maxAgeS, setMaxAgeS] = useSessionState("cov:age", 60);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 2000); return () => clearInterval(t); }, []);
 

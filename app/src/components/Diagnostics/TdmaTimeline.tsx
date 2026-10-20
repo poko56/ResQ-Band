@@ -7,6 +7,7 @@
 // ============================================================================
 
 import React, { useMemo, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { useResQ } from "@/lib/store";
 import { analyzeTdma, type Arrival, type Severity } from "@/lib/tdma";
 import { KIND_META } from "@/lib/packetFormat";
@@ -28,7 +29,7 @@ function slotsLabel(slots: Record<number, number>) {
 export function TdmaTimeline() {
   const log = useResQ((s) => s.packetLog);
   const wristbands = useResQ((s) => s.wristbands);
-  const [cycles, setCycles] = useState(12);
+  const [cycles, setCycles] = useSessionState("tdma:cycles", 12);
   const [hover, setHover] = useState<Arrival | null>(null);
 
   const a = useMemo(() => analyzeTdma(log, wristbands, cycles), [log, wristbands, cycles]);

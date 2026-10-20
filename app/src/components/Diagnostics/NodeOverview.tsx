@@ -7,6 +7,7 @@
 // ============================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { useResQ } from "@/lib/store";
 import {
   ACTIVITY_BUCKET_MS,
@@ -72,7 +73,7 @@ function useNow(intervalMs = 1000): number {
 export function NodeOverview() {
   const activity = useResQ((s) => s.diagnostics.activity);
   const now = useNow();
-  const [windowMin, setWindowMin] = useState(15);
+  const [windowMin, setWindowMin] = useSessionState("overview:window", 15);
 
   const nodes = useMemo(() => sortNodes(Object.values(activity)), [activity]);
 

@@ -8,6 +8,7 @@
 // ============================================================================
 
 import React, { useMemo, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { DEFAULT_PATH_LOSS, useResQ } from "@/lib/store";
 import { collectRssi, fitPathLoss, meanSd, predictRssi } from "@/lib/pathloss";
 
@@ -39,11 +40,12 @@ export function RangeTest() {
     [anchors],
   );
 
-  const [band, setBand] = useState("");
-  const [receiver, setReceiver] = useState("direct");
-  const [distance, setDistance] = useState("1");
-  const [target, setTarget] = useState(5);
-  const [since, setSince] = useState<number | null>(null);
+  const [band, setBand] = useSessionState("range:band", "");
+  const [receiver, setReceiver] = useSessionState("range:receiver", "direct");
+  const [distance, setDistance] = useSessionState("range:distance", "1");
+  const [target, setTarget] = useSessionState("range:target", 5);
+  // Kept across page changes so a collection keeps counting while you look elsewhere.
+  const [since, setSince] = useSessionState<number | null>("range:since", null);
 
   const activeBand = band || bandIds[0] || "";
   const samples = since ? collectRssi(log, activeBand, receiver, since) : [];

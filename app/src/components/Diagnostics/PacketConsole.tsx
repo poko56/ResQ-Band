@@ -7,6 +7,7 @@
 // ============================================================================
 
 import React, { useMemo, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { useResQ } from "@/lib/store";
 import { describePacket, KIND_META, mainTs, type PacketKind } from "@/lib/packetFormat";
 import type { PacketLogEntry } from "@/lib/types";
@@ -25,8 +26,9 @@ export function PacketConsole() {
   const wristbands = useResQ((s) => s.wristbands);
   const clear = useResQ((s) => s.clearPacketLog);
 
-  const [hidden, setHidden] = useState<Set<PacketKind>>(new Set(DEFAULT_HIDDEN));
-  const [query, setQuery] = useState("");
+  const [hiddenList, setHiddenList] = useSessionState<PacketKind[]>("pkt:hidden", DEFAULT_HIDDEN);
+  const hidden = useMemo(() => new Set(hiddenList), [hiddenList]);
+  const [query, setQuery] = useSessionState("pkt:query", "");
   const [frozen, setFrozen] = useState<PacketLogEntry[] | null>(null);
   const [open, setOpen] = useState<number | null>(null);
 
@@ -58,11 +60,7 @@ export function PacketConsole() {
   }, [source, wristbands]);
 
   function toggle(k: PacketKind) {
-    setHidden((h) => {
-      const n = new Set(h);
-      n.has(k) ? n.delete(k) : n.add(k);
-      return n;
-    });
+    setHiddenList((h) => (h.includes(k) ? h.filter((x) => x !== k) : [...h, k]));
   }
 
   function exportJsonl() {

@@ -7,6 +7,7 @@
 // ============================================================================
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { formatBytes } from "@/lib/activity";
 import type { NodeActivity, NodeKind } from "@/lib/types";
 
@@ -116,8 +117,8 @@ function linePath(values: (number | null)[], x: (i: number) => number, y: (v: nu
 }
 
 export function TrendChart({ nodes, now, windowMin }: { nodes: NodeActivity[]; now: number; windowMin: number }) {
-  const [group, setGroup] = useState<Group>("all");
-  const [metric, setMetric] = useState<Metric>("packets");
+  const [group, setGroup] = useSessionState<Group>("trend:group", "all");
+  const [metric, setMetric] = useSessionState<Metric>("trend:metric", "packets");
   const [hover, setHover] = useState<number | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);

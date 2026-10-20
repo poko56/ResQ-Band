@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type {
   Anchor,
@@ -171,6 +171,37 @@ function statusFromPacketType(ptype: string, prev?: BandStatus): BandStatus {
 let _sendCommand: ((cmd: object) => void) | null = null;
 export function _registerSendCommand(fn: (cmd: object) => void) {
   _sendCommand = fn;
+}
+
+// localStorage writes are batched: persist() serialises the saved slice on
+// every state change, which with sightings saved too (and photos in the
+// roster) would mean a large JSON write per incoming packet. Writes land at
+// most once a second and are flushed when the page is hidden or closed.
+const SAVE_DELAY_MS = 1000;
+const pendingWrites = new Map<string, string>();
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+// persist() writes on every set(), even before rehydrate() has loaded the saved
+// state, which would overwrite it with empty defaults. Hold writes until then.
+let storeHydrated = false;
+function flushWrites() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  for (const [k, v] of pendingWrites) {
+    try { localStorage.setItem(k, v); } catch (err) { console.warn("[store] save failed", err); }
+  }
+  pendingWrites.clear();
+}
+const batchedStorage: StateStorage = {
+  getItem: (k) => pendingWrites.get(k) ?? (typeof localStorage === "undefined" ? null : localStorage.getItem(k)),
+  setItem: (k, v) => {
+    if (!storeHydrated) return;
+    pendingWrites.set(k, v);
+    saveTimer ??= setTimeout(flushWrites, SAVE_DELAY_MS);
+  },
+  removeItem: (k) => { pendingWrites.delete(k); try { localStorage.removeItem(k); } catch { /* blocked */ } },
+};
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", flushWrites);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushWrites(); });
 }
 
 const PACKET_LOG_MAX = 2000;
@@ -838,10 +869,18 @@ export const useResQ = create<ResQState>()(
   // localStorage before React hydrates made the first client render differ
   // from it (React error #418 on every page).
   skipHydration: true,
+  storage: createJSONStorage(() => batchedStorage),
+  onRehydrateStorage: () => () => { storeHydrated = true; },
+  // Mission data survives a reload: who was seen where, what happened, and
+  // whether search mode was on. Live link stats and the packet log are
+  // rebuilt from the radio and are not saved.
   partialize: (state) => ({
     incident: state.incident,
     wristbands: state.wristbands,
     anchors: state.anchors,
+    sightings: state.sightings,
+    timeline: state.timeline,
+    searchMode: state.searchMode,
     pathLoss: state.pathLoss,
     rangePoints: state.rangePoints,
   })

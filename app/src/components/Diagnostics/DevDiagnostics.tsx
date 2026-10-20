@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { useResQ } from "@/lib/store";
 import { NodeOverview } from "./NodeOverview";
 import { PacketConsole } from "./PacketConsole";
@@ -57,10 +58,10 @@ export function DevDiagnostics() {
   const wristbands = useResQ((s) => s.wristbands);
   const hub = useResQ((s) => s.hub);
 
-  const [tab, setTab] = useState<TabId>("overview");
-  const [selectedBand, setSelectedBand] = useState<string>("ALL");
-  const [metricView, setMetricView] = useState<"rssi" | "snr">("rssi");
-  const [eventFilter, setEventFilter] = useState<"all" | "drop" | "lost" | "recovered">("all");
+  const [tab, setTab] = useSessionState<TabId>("dev:tab", "overview");
+  const [selectedBand, setSelectedBand] = useSessionState<string>("dev:band", "ALL");
+  const [metricView, setMetricView] = useSessionState<"rssi" | "snr">("dev:metric", "rssi");
+  const [eventFilter, setEventFilter] = useSessionState<"all" | "drop" | "lost" | "recovered">("dev:events", "all");
   const [hoveredPoint, setHoveredPoint] = useState<{
     target: string;
     rssi: number;

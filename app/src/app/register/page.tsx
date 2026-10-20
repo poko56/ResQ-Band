@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useSessionState } from "@/lib/useSessionState";
 import { TagInput } from "@/components/ui/TagInput";
 import { useResQ } from "@/lib/store";
 import { compressImageFile, approxKb } from "@/lib/photo";
@@ -17,20 +18,24 @@ export default function RegisterPage() {
   const registerWristband = useResQ((s) => s.registerWristband);
   const removeWristband   = useResQ((s) => s.removeWristband);
 
-  const [id, setId]               = useState("");
-  const [name, setName]           = useState("");
-  const [age, setAge]             = useState("");
-  const [gender, setGender]       = useState<"" | "M" | "F" | "other">("");
-  const [role, setRole]           = useState<"" | BandRole>("");
-  const [idCardNumber, setIdCard] = useState("");
-  const [bloodType, setBloodType] = useState("");
-  const [allergies,   setAllergies]   = useState<string[]>([]);
-  const [conditions,  setConditions]  = useState<string[]>([]);
-  const [medications, setMedications] = useState<string[]>([]);
-  const [ecName, setEcName]         = useState("");
-  const [ecPhone, setEcPhone]       = useState("");
-  const [ecRelation, setEcRelation] = useState("");
-  const [photo, setPhoto]           = useState<string | undefined>();
+  // The form is a draft kept in this tab: switching pages mid-entry (or a
+  // reload) doesn't lose what was typed.
+  const [id, setId]               = useSessionState("reg:id", "");
+  const [name, setName]           = useSessionState("reg:name", "");
+  const [age, setAge]             = useSessionState("reg:age", "");
+  const [gender, setGender]       = useSessionState<"" | "M" | "F" | "other">("reg:gender", "");
+  const [role, setRole]           = useSessionState<"" | BandRole>("reg:role", "");
+  const [idCardNumber, setIdCard] = useSessionState("reg:idcard", "");
+  const [bloodType, setBloodType] = useSessionState("reg:blood", "");
+  const [allergies,   setAllergies]   = useSessionState<string[]>("reg:allergies", []);
+  const [conditions,  setConditions]  = useSessionState<string[]>("reg:conditions", []);
+  const [medications, setMedications] = useSessionState<string[]>("reg:medications", []);
+  const [ecName, setEcName]         = useSessionState("reg:ecname", "");
+  const [ecPhone, setEcPhone]       = useSessionState("reg:ecphone", "");
+  const [ecRelation, setEcRelation] = useSessionState("reg:ecrelation", "");
+  const [photoDraft, setPhotoDraft] = useSessionState<string | null>("reg:photo", null);
+  const photo = photoDraft ?? undefined;
+  const setPhoto = (v: string | undefined) => setPhotoDraft(v ?? null);
   const [photoBusy, setPhotoBusy]   = useState(false);
   const [photoErr,  setPhotoErr]    = useState<string | undefined>();
 
