@@ -174,12 +174,78 @@ static void start_ring(uint32_t band_id) {
   Serial.printf("[RING] requesting band %08X to sound\n", (unsigned)band_id);
 }
 
+// ---- FOUND report to MainNode ---------------------------------------------------
+// MainNode does not ack FOUND, so the report is sent FOUND_REPEATS times in
+// this node's TDMA slot (8), one per cycle. Without a recent beacon (MainNode
+// out of earshot) it is sent right away instead, once a second.
+static constexpr uint8_t  FOUND_REPEATS        = 3;
+static constexpr uint32_t BEACON_FRESH_MS      = 30000;
+static uint32_t g_beacon_start_ms = 0;   // millis() when slot 0 of the last heard cycle began
+static uint32_t g_beacon_cycle    = 0;
+
+static struct {
+  uint32_t band_id   = 0;
+  uint8_t  outcome   = 0;
+  int16_t  rssi      = 0;
+  uint8_t  left      = 0;      // sends remaining; 0 = idle
+  uint32_t last_cycle = 0xFFFFFFFF;
+  uint32_t last_ms   = 0;
+} g_found;
+
+static void queue_found(uint32_t band_id, ResQ::FoundOutcome outcome, int16_t rssi) {
+  if (band_id == 0) return;
+  g_found.band_id = band_id;
+  g_found.outcome = outcome;
+  g_found.rssi = rssi;
+  g_found.left = FOUND_REPEATS;
+  g_found.last_cycle = 0xFFFFFFFF;
+  g_found.last_ms = 0;
+  webui_set_found_state(FOUND_SENDING);
+  Serial.printf("[FOUND] band %08X outcome=%s queued\n", (unsigned)band_id, ResQ::found_outcome_label(outcome));
+}
+
+static void tx_found() {
+  ResQ::FoundPacket pkt;
+  ResQ::fill_found(pkt, g_device_id, g_found.band_id, millis(), g_found.rssi, (ResQ::FoundOutcome)g_found.outcome);
+  LoRa.idle();
+  if (LoRa.beginPacket()) {
+    LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
+    LoRa.endPacket();
+  }
+  LoRa.receive();
+}
+
+static void update_found(uint32_t now) {
+  if (g_found.left == 0) return;
+  bool send = false;
+  const bool synced = g_beacon_start_ms != 0 && now - g_beacon_start_ms < BEACON_FRESH_MS;
+  if (synced) {
+    const uint32_t since  = now - g_beacon_start_ms;
+    const uint32_t cycle  = g_beacon_cycle + since / TDMA_CYCLE_MS;
+    const uint32_t inCyc  = since % TDMA_CYCLE_MS;
+    const uint32_t slotAt = TDMA_SLOT_RESQ_NODE * TDMA_SLOT_MS;
+    send = inCyc >= slotAt + TDMA_SLOT_TX_OFFSET_MS && inCyc < slotAt + TDMA_SLOT_TX_WINDOW_MS && cycle != g_found.last_cycle;
+    if (send) g_found.last_cycle = cycle;
+  } else {
+    send = now - g_found.last_ms >= 1000;
+  }
+  if (!send) return;
+  g_found.last_ms = now;
+  tx_found();
+  if (--g_found.left == 0) {
+    webui_set_found_state(FOUND_SENT);
+    Serial.printf("[FOUND] band %08X reported%s\n", (unsigned)g_found.band_id, synced ? " in slot 8" : " (no beacon, sent immediately)");
+    beep(80); delay(80); beep(80);
+  }
+}
+
 static void update_ring(uint32_t now) {
   // A new target starts with a clean ring status on the WebUI.
   static uint32_t s_last_target = 0;
   if (g_target_id != s_last_target) {
     s_last_target = g_target_id;
     if (g_ring.band_id != g_target_id) { g_ring.band_id = 0; webui_set_ring_state(RING_IDLE); }
+    if (g_found.left == 0 && g_target_id != 0) webui_set_found_state(FOUND_IDLE);
   }
   if (g_ring.band_id == 0) return;
   if (now >= g_ring.until_ms) {
@@ -218,7 +284,17 @@ static void process_lora_packet() {
     c_hb++;
     last_hb_n = n;
   }
-  else if (ptype == ResQ::PKT_BEACON) c_bc++;
+  else if (ptype == ResQ::PKT_BEACON) {
+    c_bc++;
+    if (n >= sizeof(ResQ::BeaconPacket)) {
+      ResQ::BeaconPacket b;
+      memcpy(&b, buf, sizeof(b));
+      if (ResQ::verify_beacon(b)) {
+        g_beacon_start_ms = millis() - TDMA_BEACON_AIRTIME_MS;
+        g_beacon_cycle = b.cycle_id;
+      }
+    }
+  }
   else if (ptype == ResQ::PKT_PIN_SIGHTING) c_pin++;
   else c_other++;
 
@@ -393,6 +469,18 @@ void loop() {
   }
   update_ring(now);
 
+  // Outcome chosen on the WebUI (rescued / deceased / not found / backup)
+  if (webui_wants_found != 0 && g_target_id != 0) {
+    const auto outcome = (ResQ::FoundOutcome)(webui_wants_found - 1);
+    queue_found(g_target_id, outcome, g_last_rssi);
+    if (outcome == ResQ::OUTCOME_RESCUED || outcome == ResQ::OUTCOME_DECEASED) {
+      g_target_id = 0;   // this person is done; free the handheld for the next one
+      g_last_hr = g_last_spo2 = g_last_batt = g_last_triage = 0;
+    }
+  }
+  webui_wants_found = 0;
+  update_found(now);
+
   // Found button (Confirm rescued) - Requires 1-second hold to avoid EMI triggers
   static uint32_t btn_found_press_start = 0;
   if (digitalRead(PIN_BTN_FOUND) == LOW) {
@@ -402,7 +490,7 @@ void loop() {
       if (g_target_id != 0) {
         Serial.printf("[FOUND] Confirming rescue for %08X\n", g_target_id);
         beep(200);
-        // Here we would send PKT_FOUND to MainNode via LoRa
+        queue_found(g_target_id, ResQ::OUTCOME_RESCUED, g_last_rssi);
         g_target_id = 0; // reset target
         g_last_hr = g_last_spo2 = g_last_batt = g_last_triage = 0;
         btn_found_press_start = 0; // reset hold timer

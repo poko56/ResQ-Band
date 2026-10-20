@@ -297,9 +297,15 @@ void loop() {
   }
 
   // --- Dispatch assignment in slot 7 (MainNode cmd slot) --------------------
-  // Re-evaluate every 2s; only TX if there's something to assign.
-  if (g_lora_ready && now - g_last_dispatch_ms >= 2000) {
-    g_last_dispatch_ms = now;
+  // At most once per cycle and only inside slot 7. Transmitting anywhere else
+  // both collides with other devices' slots and leaves MainNode deaf while it
+  // transmits (it used to fire every 2 s regardless of the slot).
+  const uint32_t since_beacon = now - g_last_beacon_ms;
+  const uint32_t slot7_start  = TDMA_SLOT_MAIN_CMD * TDMA_SLOT_MS + TDMA_SLOT_TX_OFFSET_MS;
+  const bool in_slot7 = since_beacon >= slot7_start &&
+                        since_beacon <  TDMA_SLOT_MAIN_CMD * TDMA_SLOT_MS + TDMA_SLOT_TX_WINDOW_MS;
+  if (g_lora_ready && in_slot7 && g_last_dispatch_ms != g_last_beacon_ms) {
+    g_last_dispatch_ms = g_last_beacon_ms;   // remember: this cycle is done
     int idx = pick_dispatch_target(now);
     if (idx >= 0) {
       tx_assignment();
@@ -583,14 +589,20 @@ static void on_lora_rx(int packet_size) {
     if (!ResQ::verify_found(pkt)) { g_rx_dropped++; return; }
     g_rx_count++;
 
+    // The handheld repeats FOUND a few times (no ack), so this is idempotent.
+    // Only rescued / deceased close the case; "not found" and "needs backup"
+    // free the band for dispatch again.
+    const bool closed = pkt.outcome == ResQ::OUTCOME_RESCUED || pkt.outcome == ResQ::OUTCOME_DECEASED;
     int bidx = find_or_create_band(pkt.target_band_id);
     if (bidx >= 0) {
-      g_bands[bidx].is_rescued      = true;
-      g_bands[bidx].is_assigned     = false;
+      g_bands[bidx].is_rescued       = closed;
+      g_bands[bidx].is_assigned      = false;
       g_bands[bidx].assigned_node_id = 0;
     }
-    g_local_alarm_active   = false;
-    g_sos_pending_until_ms = 0;
+    if (closed) {
+      g_local_alarm_active   = false;
+      g_sos_pending_until_ms = 0;
+    }
 
     JsonDocument out;
     out["t"]        = "found";

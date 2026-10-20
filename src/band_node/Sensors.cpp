@@ -20,6 +20,61 @@ static const long MIN_BEAT_INTERVAL_MS = 300;   // ceiling of 200 bpm
 static const float HR_MIN_BPM = 30.0f;
 static const float HR_MAX_BPM = 180.0f;
 
+// ---- SpO2 (ratio of ratios) --------------------------------------------------
+// Over a SPO2_WINDOW_MS window, the pulsatile (AC = peak-to-peak) and steady
+// (DC = mean) parts of the red and IR signals give
+//   R = (AC_red / DC_red) / (AC_ir / DC_ir),  SpO2 ~= 110 - 25 * R
+// the common empirical curve for reflective MAX3010x sensors. It is NOT
+// calibrated against a medical oximeter: treat it as an indication (±3-5 %),
+// not a clinical value. Readings outside 70-100 % (motion, poor contact) are
+// dropped, and a valid HR is required.
+static const uint32_t SPO2_WINDOW_MS = 4000;
+static const uint32_t SPO2_MIN_SAMPLES = 200;   // ~1 s at 200 sps
+static struct {
+  uint32_t start_ms = 0;
+  uint32_t n = 0;
+  double   sumRed = 0, sumIr = 0;
+  uint32_t minRed = UINT32_MAX, maxRed = 0, minIr = UINT32_MAX, maxIr = 0;
+} s_win;
+static float s_spo2_ema = 0;   // smoothed estimate, 0 = none yet
+
+static void spo2_reset_window(uint32_t now) {
+  s_win.start_ms = now;
+  s_win.n = 0;
+  s_win.sumRed = s_win.sumIr = 0;
+  s_win.minRed = s_win.minIr = UINT32_MAX;
+  s_win.maxRed = s_win.maxIr = 0;
+}
+
+static void spo2_add_sample(uint32_t red, uint32_t ir) {
+  s_win.n++;
+  s_win.sumRed += red; s_win.sumIr += ir;
+  if (red < s_win.minRed) s_win.minRed = red;
+  if (red > s_win.maxRed) s_win.maxRed = red;
+  if (ir  < s_win.minIr)  s_win.minIr  = ir;
+  if (ir  > s_win.maxIr)  s_win.maxIr  = ir;
+}
+
+// Closes the window when it is due; returns the latest SpO2 (0 = no value).
+static uint8_t spo2_update(uint32_t now, bool finger, uint8_t hr) {
+  if (!finger || hr == 0) { s_spo2_ema = 0; spo2_reset_window(now); return 0; }
+  if (now - s_win.start_ms < SPO2_WINDOW_MS) return (uint8_t)(s_spo2_ema + 0.5f);
+  if (s_win.n >= SPO2_MIN_SAMPLES) {
+    const double dcRed = s_win.sumRed / s_win.n, dcIr = s_win.sumIr / s_win.n;
+    const double acRed = (double)s_win.maxRed - s_win.minRed;
+    const double acIr  = (double)s_win.maxIr  - s_win.minIr;
+    if (dcRed > 0 && dcIr > 0 && acIr > 0) {
+      const double r = (acRed / dcRed) / (acIr / dcIr);
+      const double spo2 = 110.0 - 25.0 * r;
+      if (spo2 >= 70.0 && spo2 <= 100.0) {
+        s_spo2_ema = s_spo2_ema == 0 ? (float)spo2 : 0.7f * s_spo2_ema + 0.3f * (float)spo2;
+      }
+    }
+  }
+  spo2_reset_window(now);
+  return (uint8_t)(s_spo2_ema + 0.5f);
+}
+
 // Apply the MAX30102 sampling config (mode, sample rate, LED currents). Kept
 // separate so both first-time init and bus recovery use identical settings.
 static void configure_max() {
@@ -107,7 +162,9 @@ void poll_sensors() {
   bool got_sample = false;
   while (particleSensor.available()) {
     long irValue = particleSensor.getFIFOIR(); // Read from FIFO
+    uint32_t redValue = particleSensor.getFIFORed();
     particleSensor.nextSample(); // Move to next sample
+    spo2_add_sample(redValue, (uint32_t)irValue);
     s_last_ir = irValue;
     got_sample = true;
 
@@ -157,10 +214,9 @@ void poll_sensors() {
     }
   }
 
-  // SpO2 is not measured in this build (the red/IR ratio algorithm is not
-  // ported), so always report 0 -> the web/handheld render it as "--".
-  // HR is the only real MAX30102 output.
-  current_spo2 = 0;
+  // SpO2 from the red/IR ratio (approximate, see spo2_update); 0 = no value,
+  // which the web/handheld render as "--".
+  current_spo2 = spo2_update(millis(), s_last_ir > 20000, current_hr);
   if (s_last_ir <= 20000) {
     current_hr = 0;   // no finger on the sensor -> no valid HR
     rateCount  = 0;   // drop stale beats so the next contact starts clean

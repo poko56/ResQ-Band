@@ -60,6 +60,17 @@
 #define TDMA_SLOT_RESQ_NODE    8
 #define TDMA_SLOT_EMERGENCY    9
 #define TDMA_MAX_BANDS         2
+
+// Airtime of an 18-byte BEACON at the SF/BW/CR above (SF9/125k/4-5). A
+// receiver timestamps the beacon when reception ends, so slot 0 started
+// this long before that. Recompute if the radio settings change.
+#define TDMA_BEACON_AIRTIME_MS 185
+// Transmit only in the first part of a slot so even a 47-byte report
+// (~310 ms at SF9) ends well before the next slot starts.
+#define TDMA_SLOT_TX_WINDOW_MS 600
+// Wait this long into a slot before transmitting, so the previous slot's
+// tail has settled and small clock drift doesn't overlap it.
+#define TDMA_SLOT_TX_OFFSET_MS 50
 #define TDMA_MAX_PINS          4
 
 #define HEARTBEAT_INTERVAL_MS  TDMA_CYCLE_MS      // 1 heartbeat per cycle

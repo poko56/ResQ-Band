@@ -15,6 +15,10 @@ extern volatile bool webui_wants_ring;   // set by POST /api/ring
 enum RingState : uint8_t { RING_IDLE = 0, RING_SENDING = 1, RING_ACKED = 2, RING_TIMEOUT = 3 };
 void webui_set_ring_state(RingState s);
 
+extern volatile uint8_t webui_wants_found;   // 0 = none, else FoundOutcome + 1 (POST /api/found)
+enum FoundState : uint8_t { FOUND_IDLE = 0, FOUND_SENDING = 1, FOUND_SENT = 2 };
+void webui_set_found_state(FoundState s);
+
 void init_web_ui();
 void webui_loop();
 void webui_set_bands(SeenBand* bands, size_t count);

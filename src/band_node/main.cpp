@@ -27,10 +27,32 @@
 #define BAND_INDEX 0
 #endif
 
-// Inside our TDMA slot, wait this long after slot start before TX. Gives the
-// previous slot's tail time to settle and de-correlates collisions when
-// multiple boards drift slightly.
-static constexpr uint32_t SLOT_TX_OFFSET_MS = 50;
+// Known bands and their TDMA slot (band index 0 -> slot 1, 1 -> slot 2),
+// matched on the device ID derived from the MAC. Unknown boards fall back to
+// the BAND_INDEX build flag. Keeps two bands from being flashed into the
+// same slot by accident.
+struct KnownBand { uint32_t device_id; uint8_t index; };
+static const KnownBand KNOWN_BANDS[] = {
+  {0x3CB88B2B, 0},   // Band 1 (board that used to be pillar 2)
+  {0x384E8B2B, 1},   // Band 2
+};
+static uint8_t g_band_index = BAND_INDEX;
+
+// --- Beacon lock ------------------------------------------------------------
+// The radio sleeps most of the cycle (see LORA_DUTY_CYCLE), so it can't hear
+// every beacon. Instead:
+//  * acquire: listen up to one full cycle for a beacon (at boot, and again
+//    every ACQUIRE_RETRY_MS while no MainNode is heard);
+//  * locked: transmit in our own slot, timed from the last beacon;
+//  * resync: every RESYNC_EVERY cycles wake RESYNC_EARLY_MS before the
+//    expected beacon to correct clock drift. RESYNC_MAX_MISSES misses in a
+//    row drop back to acquire.
+static constexpr uint32_t ACQUIRE_LISTEN_MS = TDMA_CYCLE_MS + 500;
+static constexpr uint32_t ACQUIRE_RETRY_MS  = 90000;
+static constexpr uint8_t  RESYNC_EVERY      = 6;
+static constexpr uint32_t RESYNC_EARLY_MS   = 150;
+static constexpr uint32_t RESYNC_LATE_MS    = 400;
+static constexpr uint8_t  RESYNC_MAX_MISSES = 3;
 
 // Slot 9 is the ALOHA emergency window. We sit it out for routine HB but use
 // it (with random jitter) for SOS bursts so we don't have to wait a full
@@ -52,7 +74,14 @@ static uint32_t g_beacon_cycle_id    = 0;
 static bool     g_beacon_seen        = false;
 static bool     g_lora_ready         = false;
 static uint32_t g_last_lora_retry_ms = 0;
-static uint32_t g_last_hb_sent_cycle = 0;     // cycle id we last TX'd in
+static uint32_t g_last_hb_sent_cycle = 0xFFFFFFFF;   // cycle id we last TX'd in
+
+static bool     g_locked          = false;
+static uint32_t g_beacon_start_ms = 0;     // millis() when slot 0 of the last heard cycle began
+static uint32_t g_next_acquire_ms = 0;
+static uint32_t g_resync_at_ms    = 0;     // when to open the next resync window
+static uint32_t g_resync_until_ms = 0;     // 0 = no resync window open
+static uint8_t  g_resync_misses   = 0;
 
 // --- LoRa radio duty-cycling ------------------------------------------------
 // Keeping the SX1278 in continuous RX draws steady current + SPI noise that
@@ -64,6 +93,21 @@ static uint32_t g_last_hb_sent_cycle = 0;     // cycle id we last TX'd in
 #define LORA_DUTY_CYCLE 1
 static const uint32_t LORA_LISTEN_MS = 1200;   // RX window opened after each TX
 static uint32_t g_radio_listen_until_ms = 0;   // 0 = radio asleep
+static uint32_t g_post_tx_until_ms      = 0;   // end of the listen window after our last TX
+
+// Keep the radio receiving until at least `until_ms` (extends, never shortens).
+static void radio_listen_until(uint32_t until_ms) {
+#if LORA_DUTY_CYCLE
+  if (g_radio_listen_until_ms == 0) {
+    LoRa.receive();
+    g_radio_listen_until_ms = until_ms;
+  } else if ((int32_t)(until_ms - g_radio_listen_until_ms) > 0) {
+    g_radio_listen_until_ms = until_ms;
+  }
+#else
+  (void)until_ms;   // always receiving
+#endif
+}
 
 static uint32_t g_buzz_until_ms      = 0;
 static uint16_t g_buzz_freq_hz       = 2000;
@@ -108,11 +152,22 @@ static bool connect_lora() {
 // ----------------------------------------------------------------------------
 // Battery
 // ----------------------------------------------------------------------------
+// Battery voltage needs a 2 x 100k divider from the Li-Po + to PIN_VBAT_ADC
+// (GPIO 34). Boards without it report 0 = "not measured", which the
+// web/handheld render as "--". Build with -D HAS_VBAT_DIVIDER=1 once fitted.
+#ifndef HAS_VBAT_DIVIDER
+#define HAS_VBAT_DIVIDER 0
+#endif
 static uint8_t read_battery_pct() {
-  // No battery-monitor hardware in this build. Report 0 = "not measured";
-  // the web/handheld render 0 as "--" and the ring command no longer gates
-  // on battery level.
+#if HAS_VBAT_DIVIDER
+  uint32_t mv = 0;
+  for (int i = 0; i < 8; ++i) mv += analogReadMilliVolts(PIN_VBAT_ADC);
+  const float vbat = (mv / 8.0f) * VBAT_DIVIDER_RATIO;
+  const float pct = (vbat - VBAT_EMPTY_MV) * 100.0f / (VBAT_FULL_MV - VBAT_EMPTY_MV);
+  return (uint8_t)constrain((int)(pct + 0.5f), 1, 100);   // 1..100 so 0 still means "unknown"
+#else
   return 0;
+#endif
 }
 
 // ----------------------------------------------------------------------------
@@ -123,13 +178,19 @@ static bool tx_packet(const Pkt& pkt) {
   if (!g_lora_ready) return false;
   LoRa.idle();   // wakes the radio from sleep into standby for TX
 #if LORA_DUTY_CYCLE
-  if (!LoRa.beginPacket()) { LoRa.sleep(); g_radio_listen_until_ms = 0; return false; }
+  if (!LoRa.beginPacket()) {
+    if (g_radio_listen_until_ms) LoRa.receive(); else LoRa.sleep();
+    return false;
+  }
   LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
   const bool ok = LoRa.endPacket() == 1;
-  // Open a short listen window so we still catch BEACON/RING_CMD, then the loop
-  // puts the radio back to sleep once it expires.
+  // Open a short listen window so we still catch RING_CMD, then the loop puts
+  // the radio back to sleep once it (and any acquire/resync window) expires.
   LoRa.receive();
-  g_radio_listen_until_ms = millis() + LORA_LISTEN_MS;
+  g_post_tx_until_ms = millis() + LORA_LISTEN_MS;
+  if (g_radio_listen_until_ms == 0 || (int32_t)(g_post_tx_until_ms - g_radio_listen_until_ms) > 0) {
+    g_radio_listen_until_ms = g_post_tx_until_ms;
+  }
 #else
   if (!LoRa.beginPacket()) { LoRa.receive(); return false; }
   LoRa.write(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
@@ -207,9 +268,54 @@ static void tx_emergency(uint8_t cause, float /*max_g*/) {
 // LoRa RX handlers
 // ----------------------------------------------------------------------------
 static void handle_beacon(const ResQ::BeaconPacket& pkt) {
+  const uint32_t now = millis();
   g_beacon_seen     = true;
   g_beacon_cycle_id = pkt.cycle_id;
-  g_last_beacon_ms  = millis();
+  g_last_beacon_ms  = now;
+  g_beacon_start_ms = now - TDMA_BEACON_AIRTIME_MS;
+  if (!g_locked) {
+    Serial.printf("[TDMA] locked to MainNode beacon (cycle %lu) -> slot %u\n",
+                  (unsigned long)pkt.cycle_id, (unsigned)(TDMA_SLOT_BAND_BASE + g_band_index));
+  }
+  g_locked          = true;
+  g_resync_misses   = 0;
+  g_resync_until_ms = 0;
+  g_resync_at_ms    = g_beacon_start_ms + RESYNC_EVERY * TDMA_CYCLE_MS - RESYNC_EARLY_MS;
+#if LORA_DUTY_CYCLE
+  // Got what we listened for: sleep again, except for a post-TX window that
+  // may still be waiting for a RING_CMD.
+  const uint32_t keep = (int32_t)(g_post_tx_until_ms - now) > 0 ? g_post_tx_until_ms : now;
+  if (g_radio_listen_until_ms != 0) g_radio_listen_until_ms = keep;
+#endif
+}
+
+// Acquire / resync bookkeeping, run every loop.
+static void update_sync(uint32_t now) {
+  if (!g_lora_ready) return;
+  if (!g_locked) {
+    if ((int32_t)(now - g_next_acquire_ms) >= 0) {
+      g_next_acquire_ms = now + ACQUIRE_RETRY_MS;
+      Serial.println("[TDMA] listening for MainNode beacon...");
+      radio_listen_until(now + ACQUIRE_LISTEN_MS);
+    }
+    return;
+  }
+  if (g_resync_until_ms == 0) {
+    if ((int32_t)(now - g_resync_at_ms) >= 0) {
+      g_resync_until_ms = g_resync_at_ms + RESYNC_EARLY_MS + TDMA_BEACON_AIRTIME_MS + RESYNC_LATE_MS;
+      radio_listen_until(g_resync_until_ms);
+    }
+  } else if ((int32_t)(now - g_resync_until_ms) > 0) {
+    // Window closed with no beacon (handle_beacon would have cleared it).
+    g_resync_until_ms = 0;
+    if (++g_resync_misses >= RESYNC_MAX_MISSES) {
+      g_locked = false;
+      g_next_acquire_ms = now;
+      Serial.println("[TDMA] lost MainNode beacon - re-acquiring");
+    } else {
+      g_resync_at_ms += TDMA_CYCLE_MS;   // try the next cycle's beacon
+    }
+  }
 }
 
 static void handle_ring_cmd(const ResQ::RingCmdPacket& pkt) {
@@ -298,34 +404,22 @@ static void update_buzzer(uint32_t now) {
 // ----------------------------------------------------------------------------
 static bool should_tx_heartbeat(uint32_t now) {
   if (!g_lora_ready) return false;
-#if LORA_DUTY_CYCLE
-  // Radio sleeps most of the cycle, so we can't reliably hear the slot-0 beacon
-  // to phase-lock. Free-run one heartbeat per TDMA cycle instead.
-  static uint32_t next_free_dc = 0;
-  if (now >= next_free_dc) { next_free_dc = now + TDMA_CYCLE_MS; return true; }
-  return false;
-#endif
-  if (!g_beacon_seen) {
-    // Free-running fallback so we can verify TX even before MainNode is alive.
-    // Once we see a beacon we'll switch to phase-locked.
+  if (!g_locked) {
+    // No MainNode heard (yet): free-run one heartbeat per cycle so the band is
+    // still visible to pillars and handhelds.
     static uint32_t next_free = 0;
-    if (now >= next_free) {
-      next_free = now + TDMA_CYCLE_MS;
-      return true;
-    }
+    if ((int32_t)(now - next_free) >= 0) { next_free = now + TDMA_CYCLE_MS; return true; }
     return false;
   }
-
-  const uint32_t since_beacon = now - g_last_beacon_ms;
-  const uint32_t slot_idx     = since_beacon / TDMA_SLOT_MS;
-  const uint32_t into_slot    = since_beacon % TDMA_SLOT_MS;
-  const uint32_t my_slot      = TDMA_SLOT_BAND_BASE + BAND_INDEX;
-
-  // Only TX once per cycle, inside our slot, after the TX offset
-  if (slot_idx == my_slot &&
-      into_slot >= SLOT_TX_OFFSET_MS &&
-      g_last_hb_sent_cycle != g_beacon_cycle_id) {
-    g_last_hb_sent_cycle = g_beacon_cycle_id;
+  // Locked: once per cycle, early in our own slot.
+  const uint32_t since    = now - g_beacon_start_ms;
+  const uint32_t cycle    = g_beacon_cycle_id + since / TDMA_CYCLE_MS;
+  const uint32_t in_cycle = since % TDMA_CYCLE_MS;
+  const uint32_t slot_at  = (TDMA_SLOT_BAND_BASE + g_band_index) * TDMA_SLOT_MS;
+  if (in_cycle >= slot_at + TDMA_SLOT_TX_OFFSET_MS &&
+      in_cycle <  slot_at + TDMA_SLOT_TX_WINDOW_MS &&
+      cycle != g_last_hb_sent_cycle) {
+    g_last_hb_sent_cycle = cycle;
     return true;
   }
   return false;
@@ -364,12 +458,18 @@ void setup() {
   // across chips from the same batch. We must shift by 16 bits to include the last 2 bytes 
   // (which actually differ between chips) into the 32-bit device ID.
   g_device_id = (uint32_t)(ESP.getEfuseMac() >> 16);
+  bool known = false;
+  for (const auto& k : KNOWN_BANDS) {
+    if (k.device_id == g_device_id) { g_band_index = k.index; known = true; break; }
+  }
+  if (g_band_index >= TDMA_MAX_BANDS) g_band_index = 0;
 
   Serial.println();
   Serial.printf("== %s fw=%s ==\n", BOARD_NAME, FW_VERSION);
-  Serial.printf("device_id=%08X  band_index=%u  slot=%u\n",
-                g_device_id, (unsigned)BAND_INDEX,
-                (unsigned)(TDMA_SLOT_BAND_BASE + BAND_INDEX));
+  Serial.printf("device_id=%08X  band_index=%u  slot=%u  (%s)\n",
+                g_device_id, (unsigned)g_band_index,
+                (unsigned)(TDMA_SLOT_BAND_BASE + g_band_index),
+                known ? "from device table" : "BAND_INDEX build flag");
 
   // --- Sensors FIRST -------------------------------------------------------
   // MAX30102 (HR), powered from the AMS1117 rail.
@@ -426,7 +526,8 @@ void loop() {
     digitalWrite(PIN_LED_STATUS, ((now / 500) & 1) ? HIGH : LOW);
   }
 
-  // --- TDMA-gated heartbeat ------------------------------------------------
+  // --- Beacon acquire / resync, then TDMA-gated heartbeat -----------------
+  update_sync(now);
   if (should_tx_heartbeat(now)) {
     tx_heartbeat();
   }

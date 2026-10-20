@@ -12,6 +12,10 @@ volatile bool webui_wants_ring = false;
 static RingState s_ring_state = RING_IDLE;
 void webui_set_ring_state(RingState s) { s_ring_state = s; }
 
+volatile uint8_t webui_wants_found = 0;
+static FoundState s_found_state = FOUND_IDLE;
+void webui_set_found_state(FoundState s) { s_found_state = s; }
+
 // State variables for WebUI
 static uint32_t s_target_id = 0;
 static float    s_distance_m = -1.0f;
@@ -154,6 +158,16 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <div class="med" id="target-medical"></div>
         <button class="btn accent" id="ring-btn" onclick="ringBand()" style="margin-top:10px;display:none;">🔔 ส่งเสียงที่กำไล</button>
         <div class="hint" id="ring-status" style="text-align:center;"></div>
+        <div id="found-box" style="display:none;margin-top:10px;">
+          <div class="hint" style="margin:0 0 6px;">แจ้งผลให้ศูนย์ (ส่งผ่าน LoRa ใน slot ของเครื่องนี้)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <button class="btn accent" onclick="reportFound(0)">✅ ช่วยออกมาแล้ว</button>
+            <button class="btn" onclick="reportFound(1)">⚫ เสียชีวิต</button>
+            <button class="btn" onclick="reportFound(2)">❓ ไม่พบคน</button>
+            <button class="btn" onclick="reportFound(3)">🆘 ขอกำลังเสริม</button>
+          </div>
+        </div>
+        <div class="hint" id="found-status" style="text-align:center;"></div>
       </div>
     </div>
 
@@ -231,6 +245,12 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       document.getElementById('ring-status').innerText = 'กำลังส่งคำสั่ง…';
       fetch('/api/ring', { method:'POST' }).catch(()=>{});
     }
+    const FOUND_LABEL = ['ช่วยออกมาแล้ว', 'เสียชีวิต', 'ไม่พบคน', 'ขอกำลังเสริม'];
+    function reportFound(outcome){
+      if(outcome !== 2 && outcome !== 3 && !confirm('ยืนยันแจ้งศูนย์: ' + FOUND_LABEL[outcome] + ' ?')) return;
+      fetch('/api/found?outcome=' + outcome, { method:'POST' }).catch(()=>{});
+    }
+    const FOUND_TEXT = ['', 'กำลังแจ้งศูนย์… (ส่งซ้ำ 3 รอบ)', '✅ แจ้งศูนย์แล้ว'];
     const RING_TEXT = ['', 'กำลังเรียกกำไล… (รอกำไลตื่น สูงสุด ~12 วิ)', '✅ กำไลกำลังส่งเสียง', '⚠️ กำไลไม่ตอบ (อยู่นอกระยะหรือปิดอยู่)'];
 
     const TRIAGE_LABEL = ['SAFE','WATCH','CRITICAL','NO PULSE'];
@@ -251,7 +271,9 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
           document.getElementById('vitals-panel').style.display = 'none';
           document.getElementById('ring-btn').style.display = 'none';
           document.getElementById('ring-status').innerText = '';
+          document.getElementById('found-box').style.display = 'none';
         } else {
+          document.getElementById('found-box').style.display = 'block';
           document.getElementById('ring-btn').style.display = 'flex';
           document.getElementById('ring-status').innerText = RING_TEXT[data.ring] || '';
           const hexId = data.target_id.toString(16).toUpperCase().padStart(8,'0');
@@ -315,6 +337,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             return '<tr><td>'+nm+badge+'</td><td>'+hr+'</td><td class="mono">'+b.rssi+'</td><td>'+btn+'</td></tr>';
           }).join('');
         }
+        document.getElementById('found-status').innerText = FOUND_TEXT[data.found] || '';
         setLink(true);
       }).catch(()=>setLink(false));
     }
@@ -352,6 +375,7 @@ void handleApiData() {
   json += "\"batt\":" + String(s_v_batt) + ",";
   json += "\"triage\":" + String(s_v_triage) + ",";
   json += "\"ring\":" + String((int)s_ring_state) + ",";
+  json += "\"found\":" + String((int)s_found_state) + ",";
   
   String extDebug = g_webui_debug + " | T:" + String(s_target_id, HEX);
   extDebug += " [";
@@ -381,6 +405,15 @@ void handleApiData() {
 void handleAssign() {
   if (server.hasArg("id")) {
     webui_wants_target_id = strtoul(server.arg("id").c_str(), NULL, 10);
+  }
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "application/json", "{\"success\":true}");
+}
+
+void handleFound() {
+  if (server.hasArg("outcome")) {
+    const long o = server.arg("outcome").toInt();
+    if (o >= 0 && o <= 3) webui_wants_found = (uint8_t)(o + 1);
   }
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", "{\"success\":true}");
@@ -464,6 +497,7 @@ void init_web_ui() {
   server.on("/api/assign", HTTP_POST, handleAssign);
   server.on("/api/assign", HTTP_OPTIONS, handleOptions);
   server.on("/api/ring", HTTP_POST, handleRing);
+  server.on("/api/found", HTTP_POST, handleFound);
   server.on("/api/ring", HTTP_OPTIONS, handleOptions);
   // Browsers always ask for a favicon; answer it instead of logging a 404.
   server.on("/favicon.ico", HTTP_GET, []() { server.send(204); });
