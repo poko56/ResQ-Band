@@ -8,10 +8,14 @@ import type {
   BandStatus,
   ConnectionDiagnostics,
   DisconnectEvent,
+  HubEvent,
   HubStatus,
   Incident,
   LatLng,
   LinkHealthPoint,
+  PacketLogEntry,
+  PathLossModel,
+  RangeTestPoint,
   PinLinkDiagnostic,
   PinRssi,
   Sighting,
@@ -47,6 +51,17 @@ interface ResQState {
   incHubDropped: () => void;
   recordHubStats: (stats: { rx: number; dropped: number; uptimeS: number; cycle: number; heap?: number }) => void;
   resetDiagnostics: () => void;
+
+  // --- Dev Tools ---------------------------------------------------------
+  packetLog: PacketLogEntry[];
+  logPacket: (ev: HubEvent) => void;
+  clearPacketLog: () => void;
+  pathLoss: PathLossModel;                 // used for positions + coverage
+  setPathLoss: (m: PathLossModel) => void;
+  rangePoints: RangeTestPoint[];
+  addRangePoint: (p: Omit<RangeTestPoint, "id" | "ts">) => void;
+  removeRangePoint: (id: string) => void;
+  clearRangePoints: () => void;
   recordActivity: (input: Omit<ActivityInput, "now">) => void;
   setDemoMode: (enabled: boolean) => void;
 
@@ -158,8 +173,19 @@ export function _registerSendCommand(fn: (cmd: object) => void) {
   _sendCommand = fn;
 }
 
+const PACKET_LOG_MAX = 2000;
+let _packetSeq = 0;
+
+// Default path-loss model until a range test calibrates it: the same curve
+// the position estimate always used, d = 10 ^ ((-45 - rssi) / 25).
+export const DEFAULT_PATH_LOSS: PathLossModel = { rssiAt1m: -45, pathLossN: 2.5, source: "ค่าเริ่มต้น (ยังไม่ได้ปรับเทียบ)" };
+
+export function rssiToDistanceM(rssi: number, m: PathLossModel): number {
+  return Math.pow(10, (m.rssiAt1m - rssi) / (10 * m.pathLossN));
+}
+
 // Helper: Calculate Inverse Distance Weighting Trilateration
-function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors: Record<string, Anchor>): LatLng | undefined {
+function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors: Record<string, Anchor>, model: PathLossModel = DEFAULT_PATH_LOSS): LatLng | undefined {
   const now = Date.now();
   const activeSightings = Object.values(rssiPerPin).filter(p => (now - p.timestamp) < 30000); // Only use recent sightings (< 30s)
   if (activeSightings.length === 0) return undefined;
@@ -176,7 +202,7 @@ function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors:
     // Using 1/d for weighting gives a physically accurate interpolation that
     // allows strong signals to dominate (ignoring far pillars) while still
     // balancing smoothly between nearby pillars.
-    const distance = Math.pow(10, (-45 - s.rssi) / 25.0);
+    const distance = rssiToDistanceM(s.rssi, model);
     const weight = 1.0 / distance;
 
     sumLat += anchor.position.lat * weight;
@@ -202,6 +228,23 @@ export const useResQ = create<ResQState>()(
   searchMode: false,
   hub: defaultHub(),
   diagnostics: defaultDiagnostics(),
+
+  packetLog: [],
+  logPacket: (ev) =>
+    set((s) => ({
+      packetLog: [...s.packetLog.slice(-(PACKET_LOG_MAX - 1)), { id: ++_packetSeq, rxAt: Date.now(), ev }],
+    })),
+  clearPacketLog: () => set({ packetLog: [] }),
+
+  pathLoss: DEFAULT_PATH_LOSS,
+  setPathLoss: (m) => set({ pathLoss: { ...m, updatedAt: Date.now() } }),
+
+  rangePoints: [],
+  addRangePoint: (p) =>
+    set((s) => ({ rangePoints: [...s.rangePoints, { ...p, id: nanoid(6), ts: Date.now() }] })),
+  removeRangePoint: (id) =>
+    set((s) => ({ rangePoints: s.rangePoints.filter((r) => r.id !== id) })),
+  clearRangePoints: () => set({ rangePoints: [] }),
 
   recordHubStats: (stats) =>
     set((s) => {
@@ -528,7 +571,7 @@ export const useResQ = create<ResQState>()(
         const rssiEntry: PinRssi = { pinIndex: ev.pin, rssi: sg.rssi, snr: sg.snr, ageMs: sg.age_ms, timestamp: Date.now() - sg.age_ms };
         const rssiPerPin = { ...(prev?.rssiPerPin ?? {}), [ev.pin]: rssiEntry };
         // Infer position: IDW Trilateration based on all active pins
-        let position = calculateWeightedPosition(rssiPerPin, s.anchors) ?? prev?.position;
+        let position = calculateWeightedPosition(rssiPerPin, s.anchors, s.pathLoss) ?? prev?.position;
         nextSightings[bandId] = {
           wristbandId: bandId,
           lastSeen: prev?.lastSeen ?? Date.now(),
@@ -798,6 +841,8 @@ export const useResQ = create<ResQState>()(
   partialize: (state) => ({
     incident: state.incident,
     wristbands: state.wristbands,
-    anchors: state.anchors
+    anchors: state.anchors,
+    pathLoss: state.pathLoss,
+    rangePoints: state.rangePoints,
   })
 }));

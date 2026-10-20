@@ -231,6 +231,34 @@ export interface NodeActivity {
   disconnects: number;
 }
 
+// ----------------------------------------------------------------------------
+// Dev Tools: raw packet log, path-loss calibration, range-test points
+// ----------------------------------------------------------------------------
+export interface PacketLogEntry {
+  id: number;        // monotonic, for React keys
+  rxAt: number;      // browser Date.now() when the line arrived
+  ev: HubEvent;
+}
+
+// Log-distance path-loss model: rssi = rssiAt1m - 10 * pathLossN * log10(d)
+export interface PathLossModel {
+  rssiAt1m: number;
+  pathLossN: number;
+  updatedAt?: number;
+  source?: string;   // e.g. "range test, 5 points, R² 0.97"
+}
+
+export interface RangeTestPoint {
+  id: string;
+  bandId: string;
+  receiver: string;  // "direct" (MainNode) or "pin:<idx>"
+  distanceM: number;
+  rssiAvg: number;
+  rssiSd: number;
+  samples: number;
+  ts: number;
+}
+
 export interface ConnectionDiagnostics {
   bands: Record<string, BandLinkDiagnostic>;
   pins: Record<number, PinLinkDiagnostic>;

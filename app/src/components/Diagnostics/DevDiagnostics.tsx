@@ -3,6 +3,25 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useResQ } from "@/lib/store";
 import { NodeOverview } from "./NodeOverview";
+import { PacketConsole } from "./PacketConsole";
+import { TdmaTimeline } from "./TdmaTimeline";
+import { RangeTest } from "./RangeTest";
+import dynamic from "next/dynamic";
+
+// Leaflet touches window, so the coverage map only loads in the browser.
+const CoverageMap = dynamic(() => import("./CoverageMap"), {
+  ssr: false,
+  loading: () => <div className="panel p-8 text-center text-xs text-app-muted">กำลังโหลดแผนที่…</div>,
+});
+
+const TABS = [
+  { id: "overview", label: "ภาพรวม" },
+  { id: "packets",  label: "Packet Console" },
+  { id: "tdma",     label: "TDMA" },
+  { id: "range",    label: "Range Test" },
+  { id: "coverage", label: "Coverage" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
 import type { BandLinkDiagnostic, DisconnectEvent } from "@/lib/types";
 
 // Signal color palette for lines & badges
@@ -38,6 +57,7 @@ export function DevDiagnostics() {
   const wristbands = useResQ((s) => s.wristbands);
   const hub = useResQ((s) => s.hub);
 
+  const [tab, setTab] = useState<TabId>("overview");
   const [selectedBand, setSelectedBand] = useState<string>("ALL");
   const [metricView, setMetricView] = useState<"rssi" | "snr">("rssi");
   const [eventFilter, setEventFilter] = useState<"all" | "drop" | "lost" | "recovered">("all");
@@ -254,8 +274,23 @@ export function DevDiagnostics() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex h-8 items-stretch gap-px border-b border-app-divider bg-app-surface px-2">
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`px-3 text-2xs font-semibold uppercase tracking-wider ${tab === t.id ? "border-b-2 border-accent text-app-text" : "text-app-dim hover:text-app-text"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* Main Scrollable Dashboard */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {tab === "packets" && <PacketConsole />}
+        {tab === "tdma" && <TdmaTimeline />}
+        {tab === "range" && <RangeTest />}
+        {tab === "coverage" && <CoverageMap />}
+        {tab === "overview" && (<>
         {/* KPI Cards Grid */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
           {/* Card 1: PDR */}
@@ -848,6 +883,7 @@ export function DevDiagnostics() {
             )}
           </div>
         </div>
+        </>)}
       </div>
     </div>
   );
