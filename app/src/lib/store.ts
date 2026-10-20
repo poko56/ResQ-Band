@@ -707,28 +707,43 @@ export const useResQ = create<ResQState>()(
 
   applyFound: (ev) => {
     const bandId = ev.band.toUpperCase();
-    const status: BandStatus = ev.outcome === "deceased" ? "deceased" : "rescued";
+    const outcome = ev.outcome as NonNullable<Sighting["outcome"]>;
+    const prev0 = get().sightings[bandId];
+    // The handheld repeats FOUND up to 3 times (no ack): log each outcome once.
+    const repeat = prev0?.outcome === outcome && prev0.rescuedAt !== undefined && Date.now() - prev0.rescuedAt < 60_000;
     set((s) => {
       const prev = s.sightings[bandId];
       if (!prev) return s;
+      // Only rescued / deceased close the case. "not found" and "needs backup"
+      // put the band back in the queue for another dispatch.
+      const status: BandStatus =
+        outcome === "deceased" ? "deceased" :
+        outcome === "rescued"  ? "rescued"  :
+        prev.status === "assigned" ? "active" : prev.status;
       return {
         sightings: {
           ...s.sightings,
           [bandId]: {
             ...prev,
             status,
-            rescuedAt: Date.now(),
+            rescuedAt: repeat ? prev.rescuedAt : Date.now(),
             rescuerNodeId: ev.node_id,
             finalRssi: ev.rssi,
-            outcome: ev.outcome as Sighting["outcome"],
+            outcome,
           },
         },
       };
     });
+    if (repeat) return;
     const wb = get().wristbands[bandId];
-    get().pushEvent("found_by_handheld",
-      `กู้ภัยพบ ${wb?.name ?? bandId} แล้ว (outcome: ${ev.outcome})`,
-      { wristbandId: bandId });
+    const who = wb?.name ?? bandId;
+    const text: Record<string, string> = {
+      rescued: `กู้ภัยช่วย ${who} ออกมาได้แล้ว`,
+      deceased: `กู้ภัยพบ ${who} เสียชีวิต`,
+      not_found: `กู้ภัยไปถึงจุดของ ${who} แต่ไม่พบคน — กลับเข้าคิวค้นหา`,
+      needs_backup: `กู้ภัยที่จุดของ ${who} ขอกำลังเสริม/อุปกรณ์`,
+    };
+    get().pushEvent("found_by_handheld", `${text[outcome] ?? `ผลจากเครื่องค้นหา: ${outcome}`} (ResQ-Node ${ev.node_id})`, { wristbandId: bandId });
   },
 
   markRescued: (wristbandId) => {
