@@ -21,6 +21,26 @@ void test_sos_packet(void) {
     TEST_ASSERT_EQUAL_STRING("SOS_VITALS", packet_type_label(PKT_SOS_VITALS));
 }
 
+void test_sos_vitals_packet(void) {
+    // v2 bands raise SOS from critical vitals; the verifier must accept it
+    // and reject a corrupted copy.
+    SOSPacket pkt;
+    fill_sos_packet(pkt, PKT_SOS_VITALS, 0x3CB88B2B, 7, TRIAGE_RED, 35, 0, 0, 0);
+    TEST_ASSERT_EQUAL_UINT8(PKT_SOS_VITALS, pkt.packet_type);
+    TEST_ASSERT_TRUE(verify_sos_packet(pkt));
+    pkt.sequence = 8;
+    TEST_ASSERT_FALSE(verify_sos_packet(pkt));
+}
+
+void test_found_outcomes(void) {
+    for (uint8_t o = OUTCOME_RESCUED; o <= OUTCOME_NEEDS_BACKUP; ++o) {
+        FoundPacket pkt;
+        fill_found(pkt, 0x8EDF948C, 0x3CB88B2B, 1234, -70, (FoundOutcome)o);
+        TEST_ASSERT_TRUE(verify_found(pkt));
+        TEST_ASSERT_EQUAL_UINT8(o, pkt.outcome);
+    }
+}
+
 void test_beacon_packet(void) {
     BeaconPacket pkt;
     fill_beacon(pkt, 0x87654321, 100, 1000000, 0x01);
@@ -90,6 +110,8 @@ void test_pin_management_packets(void) {
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_sos_packet);
+    RUN_TEST(test_sos_vitals_packet);
+    RUN_TEST(test_found_outcomes);
     RUN_TEST(test_beacon_packet);
     RUN_TEST(test_assignment_packet);
     RUN_TEST(test_pin_sighting_packet);

@@ -57,7 +57,8 @@ jobs:
       - name: Stage artifact
         run: |
           mkdir -p artifacts
-          cp .pio/build/${{ matrix.env }}/firmware.bin artifacts/${{ matrix.env }}.bin
+          # platformio.ini sets workspace_dir = .pio.nosync
+          cp .pio.nosync/build/${{ matrix.env }}/firmware.bin artifacts/${{ matrix.env }}.bin
           # Per-arch checksum so devices can verify before flashing
           (cd artifacts && md5sum ${{ matrix.env }}.bin > ${{ matrix.env }}.bin.md5)
 
