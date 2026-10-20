@@ -38,7 +38,6 @@
 // doesn't claim we just heard a band that's actually long gone.
 static constexpr uint32_t SIGHTING_STALE_MS = TDMA_CYCLE_MS * 3;   // 30 s
 static constexpr uint32_t LORA_RETRY_MS     = 5000;
-static constexpr uint32_t SLOT_TX_OFFSET_MS = 50;
 
 // ----------------------------------------------------------------------------
 // State
@@ -56,7 +55,8 @@ static uint32_t      g_last_lora_retry_ms = 0;
 static uint32_t      g_last_beacon_ms     = 0;
 static uint32_t      g_beacon_cycle_id    = 0;
 static bool          g_beacon_seen        = false;
-static uint32_t      g_last_tx_cycle_id   = 0;
+static uint32_t      g_last_tx_cycle_id   = 0xFFFFFFFF;
+static uint32_t      g_beacon_start_ms    = 0;   // millis() when slot 0 of the last heard cycle began
 static uint32_t      g_total_heard        = 0;
 static LocalSighting g_table[ResQ::PIN_SIGHTING_MAX] = {};
 #if ENABLE_OTA
@@ -151,6 +151,7 @@ static void on_lora_rx(int packet_size) {
       g_beacon_seen     = true;
       g_beacon_cycle_id = pkt.cycle_id;
       g_last_beacon_ms  = millis();
+      g_beacon_start_ms = g_last_beacon_ms - TDMA_BEACON_AIRTIME_MS;
     }
     return;
   }
@@ -158,7 +159,8 @@ static void on_lora_rx(int packet_size) {
   // Anything Band-shaped contributes to our sighting table
   if ((ptype == ResQ::PKT_HEARTBEAT ||
        ptype == ResQ::PKT_SOS_TAP   ||
-       ptype == ResQ::PKT_SOS_FALL) &&
+       ptype == ResQ::PKT_SOS_FALL  ||
+       ptype == ResQ::PKT_SOS_VITALS) &&
       n >= sizeof(ResQ::SOSPacket)) {
     ResQ::SOSPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
@@ -217,15 +219,21 @@ static bool should_tx_report(uint32_t now) {
     return false;
   }
 
-  const uint32_t since_beacon = now - g_last_beacon_ms;
-  const uint32_t slot_idx     = since_beacon / TDMA_SLOT_MS;
-  const uint32_t into_slot    = since_beacon % TDMA_SLOT_MS;
-  const uint32_t my_slot      = TDMA_SLOT_PIN_BASE + g_pin_index;
+  // Project the cycle forward from the last beacon heard. This used to measure
+  // the slot without wrapping at the cycle length, so a single missed beacon
+  // pushed the slot index past 9 and the pillar went silent until it heard
+  // another one - a pillar at the edge of MainNode's range looked offline for
+  // long stretches. Clock drift is ~1 ms/min, far inside the slot window, so
+  // extrapolating across missed beacons is safe.
+  const uint32_t since    = now - g_beacon_start_ms;
+  const uint32_t cycle    = g_beacon_cycle_id + since / TDMA_CYCLE_MS;
+  const uint32_t in_cycle = since % TDMA_CYCLE_MS;
+  const uint32_t slot_at  = (TDMA_SLOT_PIN_BASE + g_pin_index) * TDMA_SLOT_MS;
 
-  if (slot_idx == my_slot &&
-      into_slot >= SLOT_TX_OFFSET_MS &&
-      g_last_tx_cycle_id != g_beacon_cycle_id) {
-    g_last_tx_cycle_id = g_beacon_cycle_id;
+  if (in_cycle >= slot_at + TDMA_SLOT_TX_OFFSET_MS &&
+      in_cycle <  slot_at + TDMA_SLOT_TX_WINDOW_MS &&
+      cycle != g_last_tx_cycle_id) {
+    g_last_tx_cycle_id = cycle;
     return true;
   }
   return false;
@@ -259,8 +267,13 @@ static void tx_sighting_report() {
   LoRa.receive();
   digitalWrite(PIN_LED_STATUS, LOW);
 
-  Serial.printf("[REPORT] cycle=%lu sightings=%u tx=%s heard=%lu\n",
-                (unsigned long)g_beacon_cycle_id,
+  if (g_beacon_seen) {
+    Serial.printf("[REPORT] cycle=%lu (beacon %lus ago) ",
+                  (unsigned long)g_last_tx_cycle_id, (unsigned long)((millis() - g_last_beacon_ms) / 1000));
+  } else {
+    Serial.print("[REPORT] free-run (no MainNode beacon yet) ");
+  }
+  Serial.printf("sightings=%u tx=%s heard=%lu\n",
                 pkt.num_sightings,
                 ok ? "OK" : "FAIL",
                 (unsigned long)g_total_heard);
