@@ -21,19 +21,46 @@
       {
         "source": "/_next/static/**",
         "headers": [
-          { "key": "Cache-Control", "value": "public,max-age=31536000,immutable" }
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=31536000,immutable"
+          }
         ]
       },
       {
         "source": "**/*.@(js|css|svg|woff2|woff|ttf|otf|jpg|jpeg|png|webp|gif|ico)",
         "headers": [
-          { "key": "Cache-Control", "value": "public,max-age=2592000" }
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=2592000"
+          }
         ]
       },
       {
         "source": "**/*.html",
         "headers": [
-          { "key": "Cache-Control", "value": "no-cache,no-store,must-revalidate" }
+          {
+            "key": "Cache-Control",
+            "value": "no-cache,no-store,must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache,no-store,must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/!(*.*)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache,no-store,must-revalidate"
+          }
         ]
       }
     ]
