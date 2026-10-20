@@ -70,6 +70,7 @@ function stopKeepalive() {
 // ----------------------------------------------------------------------------
 const ESPRESSIF_USB_VID = 0x303a;           // ESP32-S3 native USB (MainNode)
 const MANUAL_OFF_KEY = "resq-hub-manual-disconnect";
+const HUB_USB_ID_KEY = "resq-hub-usb-id";      // VID/PID of the port picked with Connect
 
 let activeReader: ReadableStreamDefaultReader<string> | null = null;
 let readableClosed: Promise<void> | null = null;
@@ -174,11 +175,30 @@ async function openPort(port: AnyPort): Promise<void> {
   startKeepalive();
 }
 
-// Pick a port the user already granted: prefer MainNode's Espressif USB.
+// Remember which USB device the user picked as MainNode, so auto-connect
+// only ever reopens that kind of device. Bands, pillars and the handheld
+// use USB-serial bridges (CP210x / CH34x) that Chrome may also have been
+// granted, and grabbing one of those blocks flashing it.
+function rememberHubUsb(port: AnyPort) {
+  const info = port.getInfo?.() ?? {};
+  try {
+    localStorage.setItem(HUB_USB_ID_KEY, JSON.stringify({ vid: info.usbVendorId, pid: info.usbProductId }));
+  } catch { /* storage blocked */ }
+}
+
+// A previously granted port that matches MainNode, or null.
 async function grantedPort(): Promise<AnyPort | null> {
   const ports: AnyPort[] = await (navigator as any).serial.getPorts();
-  if (ports.length === 0) return null;
-  return ports.find((p) => p.getInfo?.().usbVendorId === ESPRESSIF_USB_VID) ?? (ports.length === 1 ? ports[0] : null);
+  let want: { vid?: number; pid?: number } = { vid: ESPRESSIF_USB_VID };
+  try {
+    const saved = localStorage.getItem(HUB_USB_ID_KEY);
+    if (saved) want = JSON.parse(saved);
+  } catch { /* storage blocked: fall back to Espressif VID */ }
+  if (want.vid === undefined) return null;
+  return ports.find((p) => {
+    const info = p.getInfo?.() ?? {};
+    return info.usbVendorId === want.vid && (want.pid === undefined || info.usbProductId === want.pid);
+  }) ?? null;
 }
 
 function scheduleAutoConnect(delayMs: number) {
@@ -221,6 +241,7 @@ export async function connectHub(): Promise<void> {
   try {
     const port: AnyPort = await (navigator as any).serial.requestPort();
     await closePort();   // drop any half-open previous session first
+    rememberHubUsb(port);
     await openPort(port);
   } catch (err) {
     await closePort();
