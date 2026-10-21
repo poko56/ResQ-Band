@@ -12,7 +12,9 @@ import { useSessionState } from "@/lib/useSessionState";
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { rssiToDistanceM, useResQ } from "@/lib/store";
+import { effectiveRssi } from "@/lib/locate";
 import { DEFAULT_CENTER } from "@/lib/mock";
+import { MAX_ZOOM, OSM_MAX_NATIVE_ZOOM } from "@/lib/mapConfig";
 import { LORA } from "@/lib/lora";
 import type { LatLng } from "@/lib/types";
 
@@ -76,7 +78,7 @@ export default function CoverageMap() {
         out.push({
           band: id, name: wristbands[id]?.name ?? id, pin: Number(pinStr),
           from: anchor.position!, to: pos, rssi: st.lastRssi, snr: st.lastSnr, ageS,
-          estM: rssiToDistanceM(st.lastRssi, model), mapM: metersBetween(anchor.position!, pos),
+          estM: rssiToDistanceM(effectiveRssi(st.lastRssi, st.lastSnr) + (anchor.rssiOffsetDb ?? 0), model), mapM: metersBetween(anchor.position!, pos),
         });
       }
     }
@@ -100,9 +102,9 @@ export default function CoverageMap() {
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="panel relative h-[62vh] min-h-[380px] overflow-hidden">
-        <MapContainer center={[center.lat, center.lng]} zoom={18} className="h-full w-full">
+        <MapContainer center={[center.lat, center.lng]} zoom={18} maxZoom={MAX_ZOOM} className="h-full w-full">
           <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} />
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={OSM_MAX_NATIVE_ZOOM} maxZoom={MAX_ZOOM} />
           <FitToContent points={fitPoints} />
 
           {showRings && placed.map((a) => (

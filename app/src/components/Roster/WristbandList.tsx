@@ -1,7 +1,7 @@
 "use client";
 
 import { useResQ } from "@/lib/store";
-import { TRIAGE_COLORS, TRIAGE_LABELS_TH } from "@/lib/triage";
+import { TRIAGE_COLORS, triageBadge } from "@/lib/triage";
 
 function timeAgo(ts?: number) {
   if (!ts) return "—";
@@ -19,7 +19,7 @@ export function WristbandList() {
   const list = Object.values(wristbands).sort((a, b) => {
     const sa = sightings[a.id];
     const sb = sightings[b.id];
-    const rank = { red: 0, yellow: 1, green: 2, black: 3 } as const;
+    const rank = { red: 0, yellow: 1, green: 2, black: 3, nodata: 4 } as const;
     const ra = sa ? rank[sa.triage] : 99;
     const rb = sb ? rank[sb.triage] : 99;
     if (ra !== rb) return ra - rb;
@@ -40,7 +40,7 @@ export function WristbandList() {
     <ul className="divide-y divide-app-divider">
       {list.map((wb) => {
         const s = sightings[wb.id];
-        const triage = s?.triage ?? "green";
+        const badge = s ? triageBadge(s) : { label: "", color: TRIAGE_COLORS.green };
         const isSOS = s?.status === "sos";
         const isRescued = s?.status === "rescued";
         const isSilent = s?.status === "silent";
@@ -49,8 +49,8 @@ export function WristbandList() {
           <li key={wb.id} className={`row-hover flex items-center gap-2 px-2 py-1.5 ${isRescued || isSilent ? "opacity-40" : ""}`}>
             <span
               className={`resq-pin shrink-0 ${isSOS ? "pulse-sos" : ""}`}
-              style={{ background: TRIAGE_COLORS[triage] }}
-              title={TRIAGE_LABELS_TH[triage]}
+              style={{ background: badge.color }}
+              title={badge.label}
             >
               {wb.name.slice(0, 2)}
             </span>

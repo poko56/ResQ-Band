@@ -1,3 +1,5 @@
+import { effectiveRssi, median, metersBetween, pathLossDistanceM, RSSI_SAMPLE_MAX_AGE_MS, RSSI_SAMPLES, estimatePosition, type RangeReading } from "./locate";
+import { fitPillarCal, type PillarCalFit, type PillarCalPoint, type PillarCalReading } from "./pillarCal";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { nanoid } from "nanoid";
@@ -29,7 +31,8 @@ import { ACTIVITY_BUCKET_MS, applyActivity, formatDuration, sweepActivity, type 
 
 type PlacementMode = "none" | string; // "none" or anchorId
 
-const TRIAGE_FROM_BYTE: Record<number, TriageLevel> = { 0: "green", 1: "yellow", 2: "red", 3: "black" };
+const TRIAGE_FROM_BYTE: Record<number, TriageLevel> = { 0: "green", 1: "yellow", 2: "red", 3: "black", 4: "nodata" };
+const SPO2_NO_SENSOR = 255;   // with triage 4: the band has no working pulse sensor
 
 interface ResQState {
   incident: Incident;
@@ -73,6 +76,14 @@ interface ResQState {
   removeAnchor: (id: string) => void;
   renameAnchor: (id: string, name: string) => void;
   setAnchorPosition: (id: string, position: LatLng) => void;
+  // Calibrate pillar RSSI offsets from a band sitting at `truePos`.
+  // Multi-point pillar calibration (see lib/pillarCal.ts).
+  pillarCalPoints: PillarCalPoint[];
+  addPillarCalPoint: (bandId: string, truePos: LatLng) => { ok: boolean; error?: string };
+  removePillarCalPoint: (id: string) => void;
+  clearPillarCalPoints: () => void;
+  applyPillarCal: () => PillarCalFit;
+  clearPillarOffsets: () => void;
   registerAnchorId: (id: string, pinIndex?: number) => void;
   addUnassignedAnchor: (id: string) => void;
 
@@ -123,6 +134,16 @@ const defaultHub = (): HubStatus => ({
   demoMode: false,
   emergencyMode: false,
 });
+
+// Diagnostics are saved across reloads. Packets sent while the page was closed
+// were never heard, so the first packet from each band/pillar in this page load
+// only sets the baseline instead of counting the gap as loss.
+const linkBaselined = new Set<string>();
+function firstSinceLoad(key: string): boolean {
+  if (linkBaselined.has(key)) return false;
+  linkBaselined.add(key);
+  return true;
+}
 
 const defaultDiagnostics = (): ConnectionDiagnostics => ({
   bands: {},
@@ -207,43 +228,35 @@ if (typeof window !== "undefined") {
 const PACKET_LOG_MAX = 2000;
 let _packetSeq = 0;
 
-// Default path-loss model until a range test calibrates it: the same curve
-// the position estimate always used, d = 10 ^ ((-45 - rssi) / 25).
-export const DEFAULT_PATH_LOSS: PathLossModel = { rssiAt1m: -45, pathLossN: 2.5, source: "ค่าเริ่มต้น (ยังไม่ได้ปรับเทียบ)" };
+// Default path-loss model until a range test calibrates it. Field fit
+// 2026-10-20, band -> handheld at 1-23.5 m: RSSI@1m -75.8 dBm, n 2.51, R^2 0.97
+// (the handheld firmware uses the same curve).
+export const DEFAULT_PATH_LOSS: PathLossModel = { rssiAt1m: -76, pathLossN: 2.5, source: "ค่าเริ่มต้น (วัดภาคสนาม 7 จุด, R² 0.97)" };
+// The earlier uncalibrated default; browsers that saved it get the new one.
+const OLD_DEFAULT_SOURCE = "ค่าเริ่มต้น (ยังไม่ได้ปรับเทียบ)";
 
 export function rssiToDistanceM(rssi: number, m: PathLossModel): number {
-  return Math.pow(10, (m.rssiAt1m - rssi) / (10 * m.pathLossN));
+  return pathLossDistanceM(rssi, m);
 }
 
-// Helper: Calculate Inverse Distance Weighting Trilateration
+// RSSI the position uses for one pillar: median of its recent effective readings.
+export function pinRssiForRange(p: PinRssi, now = Date.now()): number {
+  const recent = (p.samples ?? []).filter((x) => now - x.t < RSSI_SAMPLE_MAX_AGE_MS).map((x) => x.v);
+  return recent.length ? median(recent) : effectiveRssi(p.rssi, p.snr);
+}
+
+// Band position from the pillars that heard it recently (see lib/locate.ts).
 function calculateWeightedPosition(rssiPerPin: Record<number, PinRssi>, anchors: Record<string, Anchor>, model: PathLossModel = DEFAULT_PATH_LOSS): LatLng | undefined {
   const now = Date.now();
-  const activeSightings = Object.values(rssiPerPin).filter(p => (now - p.timestamp) < 30000); // Only use recent sightings (< 30s)
-  if (activeSightings.length === 0) return undefined;
-
-  let sumLat = 0, sumLng = 0, sumWeight = 0;
-  let hasValidAnchor = false;
-
-  for (const s of activeSightings) {
-    const anchor = Object.values(anchors).find(a => a.pinIndex === s.pinIndex);
-    if (!anchor || !anchor.position) continue;
-
-    // Estimate distance based on path loss formula: d = 10 ^ ((TxPower - RSSI) / (10 * n))
-    // We use a simplified formula: d = 10 ^ ((-45 - RSSI) / 25)
-    // Using 1/d for weighting gives a physically accurate interpolation that
-    // allows strong signals to dominate (ignoring far pillars) while still
-    // balancing smoothly between nearby pillars.
-    const distance = rssiToDistanceM(s.rssi, model);
-    const weight = 1.0 / distance;
-
-    sumLat += anchor.position.lat * weight;
-    sumLng += anchor.position.lng * weight;
-    sumWeight += weight;
-    hasValidAnchor = true;
+  const readings: RangeReading[] = [];
+  for (const s of Object.values(rssiPerPin)) {
+    if (now - s.timestamp >= 45000) continue;   // a pillar can miss a report or two
+    const anchor = Object.values(anchors).find((a) => a.pinIndex === s.pinIndex);
+    if (!anchor?.position) continue;
+    const rssi = pinRssiForRange(s, now) + (anchor.rssiOffsetDb ?? 0);
+    readings.push({ anchor: anchor.position, distanceM: rssiToDistanceM(rssi, model) });
   }
-
-  if (!hasValidAnchor || sumWeight === 0) return undefined;
-  return { lat: sumLat / sumWeight, lng: sumLng / sumWeight };
+  return estimatePosition(readings);
 }
 
 export const useResQ = create<ResQState>()(
@@ -414,6 +427,46 @@ export const useResQ = create<ResQState>()(
     });
   },
 
+  pillarCalPoints: [],
+
+  addPillarCalPoint: (bandId, truePos) => {
+    const s = get();
+    const sighting = s.sightings[bandId];
+    const now = Date.now();
+    const readings: PillarCalReading[] = [];
+    for (const a of Object.values(s.anchors)) {
+      if (!a.position) continue;
+      const pr = sighting?.rssiPerPin[a.pinIndex];
+      if (!pr || now - pr.timestamp > RSSI_SAMPLE_MAX_AGE_MS) continue;
+      const samples = (pr.samples ?? []).filter((x) => now - x.t < RSSI_SAMPLE_MAX_AGE_MS).length;
+      readings.push({ anchorId: a.id, rssi: Math.round(pinRssiForRange(pr, now) * 10) / 10, samples });
+    }
+    if (readings.length < 2) return { ok: false, error: "ต้องมีอย่างน้อย 2 เสาที่ได้ยินกำไลนี้ในนาทีที่ผ่านมา" };
+    set({ pillarCalPoints: [...s.pillarCalPoints, { id: nanoid(6), bandId, truePos, ts: now, readings }] });
+    return { ok: true };
+  },
+
+  removePillarCalPoint: (id) => set((s) => ({ pillarCalPoints: s.pillarCalPoints.filter((p) => p.id !== id) })),
+  clearPillarCalPoints: () => set({ pillarCalPoints: [] }),
+
+  applyPillarCal: () => {
+    const s = get();
+    const fit = fitPillarCal(s.pillarCalPoints, s.anchors, s.pathLoss);
+    if (!fit.ok) return fit;
+    const anchors = Object.fromEntries(Object.entries(s.anchors).map(([k, a]) =>
+      [k, k in fit.offsets ? { ...a, rssiOffsetDb: fit.offsets[k] } : a]));
+    const pathLoss = fit.nFitted
+      ? { ...s.pathLoss, pathLossN: fit.n, source: `ปรับเทียบเสา ${s.pillarCalPoints.length} จุด`, updatedAt: Date.now() }
+      : s.pathLoss;
+    set({ anchors, pathLoss });
+    return fit;
+  },
+
+  clearPillarOffsets: () =>
+    set((s) => ({
+      anchors: Object.fromEntries(Object.entries(s.anchors).map(([k, a]) => [k, { ...a, rssiOffsetDb: undefined }])),
+    })),
+
   registerAnchorId: (id, pinIndex) => {
     set((s) => {
       if (s.anchors[id]) return s;
@@ -454,9 +507,11 @@ export const useResQ = create<ResQState>()(
   },
 
   upsertSightingFromBand: (ev) => {
-    // HR 0 means the band reads no pulse (not worn / no detectable pulse).
-    // Older band firmware still reported GREEN for that, so classify it here.
-    const triage: TriageLevel = ev.hr === 0 ? "black" : (TRIAGE_FROM_BYTE[ev.triage] ?? "green");
+    // The band decides black (on skin, no pulse) vs nodata (no reading). Very
+    // old firmware sent GREEN with HR 0; that is no reading, not a healthy band.
+    const byTriage = TRIAGE_FROM_BYTE[ev.triage] ?? "green";
+    const triage: TriageLevel = ev.hr === 0 && byTriage === "green" ? "nodata" : byTriage;
+    const sensorMissing = triage === "nodata" && ev.spo2 === SPO2_NO_SENSOR;
     const now = Date.now();
     set((s) => {
       const prev = s.sightings[ev.id];
@@ -468,7 +523,8 @@ export const useResQ = create<ResQState>()(
         rssiPerPin: prev?.rssiPerPin ?? {},
         triage,
         heartRate: ev.hr,
-        spo2: ev.spo2,
+        spo2: sensorMissing ? 0 : ev.spo2,
+        sensorMissing,
         batteryPct: ev.batt,
         lastGForce: ev.g_x10 / 10,
         hopCount: 0,
@@ -486,7 +542,10 @@ export const useResQ = create<ResQState>()(
       let totalLost = prevBandDiag?.totalLost ?? 0;
       let lostInBetween = 0;
 
-      if (prevBandDiag && prevBandDiag.lastSeq !== undefined) {
+      const resumed = firstSinceLoad(`band:${ev.id}`);
+      if (resumed && prevBandDiag) {
+        totalExpected += 1;
+      } else if (prevBandDiag && prevBandDiag.lastSeq !== undefined) {
         const lastSeq = prevBandDiag.lastSeq;
         // 16-bit sequence delta
         const seqDiff = (ev.seq >= lastSeq) ? (ev.seq - lastSeq) : (65536 - lastSeq + ev.seq);
@@ -590,6 +649,7 @@ export const useResQ = create<ResQState>()(
         pinIndex: ev.pin,
         name: isDefaultName ? `Pin-${ev.pin + 1}` : existing.name,
         position: existing?.position,
+        rssiOffsetDb: existing?.rssiOffsetDb,
         placedAt: existing?.placedAt ?? Date.now(),
         online: true,
         lastSeen: Date.now(),
@@ -599,9 +659,16 @@ export const useResQ = create<ResQState>()(
       for (const sg of ev.sightings) {
         const bandId = sg.band.toUpperCase();
         const prev = nextSightings[bandId];
-        const rssiEntry: PinRssi = { pinIndex: ev.pin, rssi: sg.rssi, snr: sg.snr, ageMs: sg.age_ms, timestamp: Date.now() - sg.age_ms };
+        const heardAt = Date.now() - sg.age_ms;
+        const prevPin = prev?.rssiPerPin?.[ev.pin];
+        // Same packet re-reported (pillars repeat a sighting until it ages out): don't count it twice.
+        const isNew = !prevPin || Math.abs(prevPin.timestamp - heardAt) > 1500;
+        const samples = isNew
+          ? [...(prevPin?.samples ?? []).filter((x) => heardAt - x.t < RSSI_SAMPLE_MAX_AGE_MS), { v: effectiveRssi(sg.rssi, sg.snr), t: heardAt }].slice(-RSSI_SAMPLES)
+          : prevPin!.samples;
+        const rssiEntry: PinRssi = { pinIndex: ev.pin, rssi: sg.rssi, snr: sg.snr, ageMs: sg.age_ms, timestamp: heardAt, samples };
         const rssiPerPin = { ...(prev?.rssiPerPin ?? {}), [ev.pin]: rssiEntry };
-        // Infer position: IDW Trilateration based on all active pins
+        // Infer position from all recently heard pillars
         let position = calculateWeightedPosition(rssiPerPin, s.anchors, s.pathLoss) ?? prev?.position;
         nextSightings[bandId] = {
           wristbandId: bandId,
@@ -626,7 +693,7 @@ export const useResQ = create<ResQState>()(
       const prevPinDiag = s.diagnostics.pins[ev.pin];
       // A pin reports once per TDMA cycle, so a longer gap means missed reports.
       const prevPinActivity = s.diagnostics.activity[`pin:${ev.pin}`];
-      const missedReports = prevPinActivity
+      const missedReports = prevPinActivity && !firstSinceLoad(`pin:${ev.pin}`)
         ? Math.max(0, Math.round((now - prevPinActivity.lastSeen) / ACTIVITY_BUCKET_MS) - 1)
         : 0;
       const pinRssi = ev.rssi ?? -90;
@@ -885,10 +952,13 @@ export const useResQ = create<ResQState>()(
   // from it (React error #418 on every page).
   skipHydration: true,
   storage: createJSONStorage(() => batchedStorage),
-  onRehydrateStorage: () => () => { storeHydrated = true; },
+  onRehydrateStorage: () => (state) => {
+    storeHydrated = true;
+    if (state?.pathLoss.source === OLD_DEFAULT_SOURCE) state.setPathLoss(DEFAULT_PATH_LOSS);
+  },
   // Mission data survives a reload: who was seen where, what happened, and
-  // whether search mode was on. Live link stats and the packet log are
-  // rebuilt from the radio and are not saved.
+  // whether search mode was on, and the link diagnostics. The packet log is
+  // rebuilt from the radio and is not saved.
   partialize: (state) => ({
     incident: state.incident,
     wristbands: state.wristbands,
@@ -898,5 +968,7 @@ export const useResQ = create<ResQState>()(
     searchMode: state.searchMode,
     pathLoss: state.pathLoss,
     rangePoints: state.rangePoints,
+    pillarCalPoints: state.pillarCalPoints,
+    diagnostics: state.diagnostics,
   })
 }));

@@ -1,11 +1,14 @@
 "use client";
 
-import { Fragment, useEffect, useMemo } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useResQ } from "@/lib/store";
 import { DEFAULT_CENTER } from "@/lib/mock";
-import { TRIAGE_COLORS, TRIAGE_LABELS_TH } from "@/lib/triage";
+import { MAX_ZOOM, OSM_MAX_NATIVE_ZOOM } from "@/lib/mapConfig";
+import { triageBadge } from "@/lib/triage";
+import type { LatLng } from "@/lib/types";
+import { PillarCalClickHandler, PillarCalLayer, PillarCalPanel } from "./PillarCalibration";
 
 function makeAnchorIcon(name: string) {
   return L.divIcon({
@@ -45,9 +48,13 @@ function PlacementHandler() {
 function CenterOnFirstAnchor() {
   const map = useMap();
   const anchors = useResQ((s) => s.anchors);
+  // Every pillar report updates its anchor (lastSeen/online), so depending on
+  // `anchors` refit the map every few seconds and undid the user's zoom. Refit
+  // only when a pillar is placed or moved.
+  const list = Object.values(anchors).filter((a) => a.position);
+  const key = list.map((a) => `${a.id}:${a.position!.lat.toFixed(7)},${a.position!.lng.toFixed(7)}`).sort().join("|");
 
   useEffect(() => {
-    const list = Object.values(anchors).filter((a) => a.position);
     if (list.length === 0) return;
     if (list.length === 1) {
       map.setView([list[0]!.position!.lat, list[0]!.position!.lng], 18);
@@ -55,7 +62,8 @@ function CenterOnFirstAnchor() {
     }
     const bounds = L.latLngBounds(list.map((a) => [a.position!.lat, a.position!.lng]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 19 });
-  }, [anchors, map]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, map]);
 
   return null;
 }
@@ -65,6 +73,10 @@ export default function LiveMap() {
   const wristbands = useResQ((s) => s.wristbands);
   const sightings = useResQ((s) => s.sightings);
   const placementMode = useResQ((s) => s.placementMode);
+  const [calOpen, setCalOpen] = useState(false);
+  const [calActive, setCalActive] = useState(false);
+  const [calPicked, setCalPicked] = useState<LatLng | null>(null);
+  const clearCalPicked = useCallback(() => setCalPicked(null), []);
 
   const anchorMarkers = useMemo(() => Object.values(anchors).filter(a => a.position), [anchors]);
   const survivorMarkers = useMemo(() => {
@@ -78,16 +90,20 @@ export default function LiveMap() {
       <MapContainer
         center={[DEFAULT_CENTER.lat, DEFAULT_CENTER.lng]}
         zoom={17}
+        maxZoom={MAX_ZOOM}
         className="h-full w-full"
-        style={{ cursor: placementMode !== "none" ? "crosshair" : "" }}
+        style={{ cursor: placementMode !== "none" || calActive ? "crosshair" : "" }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maxZoom={19}
+          maxNativeZoom={OSM_MAX_NATIVE_ZOOM}
+          maxZoom={MAX_ZOOM}
         />
 
         <PlacementHandler />
+        <PillarCalClickHandler active={calActive && placementMode === "none"} onPick={setCalPicked} />
+        {calOpen && <PillarCalLayer />}
         <CenterOnFirstAnchor />
 
         {anchorMarkers.map((a) => (
@@ -114,18 +130,19 @@ export default function LiveMap() {
         {survivorMarkers.map(({ sighting, wristband }) => {
           const name = wristband?.name ?? sighting.wristbandId;
           const isSOS = sighting.status === "sos";
+          const badge = triageBadge(sighting);
           return (
             <Marker
               key={sighting.wristbandId}
               position={[sighting.position!.lat, sighting.position!.lng]}
-              icon={makeSurvivorIcon(name, TRIAGE_COLORS[sighting.triage], isSOS)}
+              icon={makeSurvivorIcon(name, badge.color, isSOS)}
             >
               <Popup>
                 <div className="text-xs">
                   <div className="font-bold">
                     {name}{" "}
-                    <span className="ml-2 rounded px-1 text-white" style={{ background: TRIAGE_COLORS[sighting.triage] }}>
-                      {TRIAGE_LABELS_TH[sighting.triage]}
+                    <span className="ml-2 rounded px-1 text-white" style={{ background: badge.color }}>
+                      {badge.label}
                     </span>
                   </div>
                   <div>♥ {sighting.heartRate} BPM · O₂ {sighting.spo2}%</div>
@@ -137,6 +154,11 @@ export default function LiveMap() {
           );
         })}
       </MapContainer>
+
+      {anchorMarkers.length >= 2 && (
+        <PillarCalPanel open={calOpen} setOpen={setCalOpen} picking={calActive} setPicking={setCalActive}
+          picked={calPicked} clearPicked={clearCalPicked} />
+      )}
 
       {placementMode !== "none" && (
         <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 z-[1000] rounded bg-orange-500 px-3 py-1 text-xs font-bold text-white shadow-lg">

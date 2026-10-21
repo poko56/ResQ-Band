@@ -44,7 +44,7 @@ function simSnr(rssi: number): number {
 }
 
 const TRIAGE_POOL: TriageLevel[] = ["green", "green", "green", "yellow", "yellow", "red", "black"];
-const TRIAGE_BYTE: Record<TriageLevel, number> = { green: 0, yellow: 1, red: 2, black: 3 };
+const TRIAGE_BYTE: Record<TriageLevel, number> = { green: 0, yellow: 1, red: 2, black: 3, nodata: 4 };
 
 let slotHandle: ReturnType<typeof setInterval> | null = null;
 let mockStart = 0;

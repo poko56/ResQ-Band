@@ -2,7 +2,9 @@
 // ResQ-Band v2 web types - mirror MainNode JSON event schema (see main_node/main.cpp)
 // ============================================================================
 
-export type TriageLevel = "green" | "yellow" | "red" | "black";
+// "nodata": the band has no pulse reading to judge by (sensor missing, not
+// worn, or still settling). Distinct from "black" = sensor on skin, no pulse.
+export type TriageLevel = "green" | "yellow" | "red" | "black" | "nodata";
 
 export type BandStatus =
   | "registered"   // entered into roster, no signal yet
@@ -67,6 +69,10 @@ export interface Anchor {
   pinIndex: number;          // 0..3 - which physical pin this is
   name: string;              // human-friendly label
   position?: LatLng;         // operator-placed coordinates
+  // Added to this pillar's RSSI before ranging. Pillars differ by 10-20 dB
+  // (antenna, mounting, board), which otherwise drags every band towards the
+  // loudest pillar. Set by calibrating with a band at a known spot.
+  rssiOffsetDb?: number;
   placedAt: number;
   online: boolean;
   lastSeen?: number;
@@ -82,10 +88,13 @@ export interface UnassignedAnchor {
 // ----------------------------------------------------------------------------
 export interface PinRssi {
   pinIndex: number;
-  rssi: number;
+  rssi: number;            // last packet, as reported
   snr: number;
   ageMs: number;
   timestamp: number;
+  // Recent effective RSSI readings (RSSI + SNR below the noise floor) and
+  // when each arrived; the position uses their median.
+  samples?: { v: number; t: number }[];
 }
 
 export interface Sighting {
@@ -96,6 +105,7 @@ export interface Sighting {
   triage: TriageLevel;
   heartRate: number;
   spo2: number;
+  sensorMissing?: boolean;    // band reports no working pulse sensor (hardware)
   batteryPct: number;
   lastGForce: number;         // in g (already divided by 10)
   hopCount: number;

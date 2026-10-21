@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useResQ } from "@/lib/store";
-import { TRIAGE_COLORS, TRIAGE_LABELS_TH } from "@/lib/triage";
+import { triageBadge } from "@/lib/triage";
 import type { Sighting, Wristband } from "@/lib/types";
 
 const LiveMap = dynamic(() => import("@/components/Map/LiveMap"), {
@@ -172,7 +172,8 @@ function QueueRow(props: {
 }) {
   const { rank, sighting: s, wristband: wb, score, reason } = props;
   const name = wb?.name ?? s.wristbandId;
-  const triageColor = TRIAGE_COLORS[s.triage];
+  const badge = triageBadge(s);
+  const triageColor = badge.color;
   const isAssigned = s.status === "assigned";
   const isSOS = s.status === "sos";
 
@@ -200,7 +201,7 @@ function QueueRow(props: {
             <span className="truncate text-xs font-semibold text-app-text">{name}</span>
             <span className="font-mono text-2xs text-app-muted">{s.wristbandId}</span>
             <span className="ml-auto pill text-app-bg" style={{ background: triageColor }}>
-              {TRIAGE_LABELS_TH[s.triage]}
+              {badge.label}
             </span>
           </div>
 
