@@ -301,6 +301,7 @@ const char* triage_label(TriageLevel level) {
     case TRIAGE_YELLOW: return "YELLOW";
     case TRIAGE_RED:    return "RED";
     case TRIAGE_BLACK:  return "BLACK";
+    case TRIAGE_NO_DATA: return "NO_DATA";
     default:            return "UNKNOWN";
   }
 }

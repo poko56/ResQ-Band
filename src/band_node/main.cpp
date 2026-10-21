@@ -200,14 +200,24 @@ static bool tx_packet(const Pkt& pkt) {
   return ok;
 }
 
+// Skin contact with no beat for this long counts as "no pulse" (BLACK). The
+// beat detector needs several pulses to settle, so shorter is just warming up.
+static const uint32_t NO_PULSE_CONFIRM_MS = 20000;
+
 static void tx_heartbeat() {
   ++g_seq;
   read_vitals(&g_hr, &g_spo2);
   
-  // No pulse reading (band not worn, or no detectable pulse) is BLACK: the
-  // dispatcher must still see the band on the map, flagged as no-pulse.
+  // HR 0 means BLACK (no pulse) only when the sensor has been on skin long
+  // enough to find a beat. A missing sensor, a band nobody is wearing, or the
+  // first seconds after contact report NO_DATA instead, so the dispatcher can
+  // tell a hardware/wearing problem from a casualty with no pulse.
   ResQ::TriageLevel triage = ResQ::TRIAGE_GREEN;
-  if (g_hr == 0) triage = ResQ::TRIAGE_BLACK;
+  if (g_hr == 0) {
+    if (!sensor_present()) { triage = ResQ::TRIAGE_NO_DATA; g_spo2 = ResQ::SPO2_NO_SENSOR; }
+    else if (contact_ms() < NO_PULSE_CONFIRM_MS) triage = ResQ::TRIAGE_NO_DATA;
+    else triage = ResQ::TRIAGE_BLACK;
+  }
   else if (g_hr > VITAL_HR_CRITICAL_HIGH || (g_hr > 0 && g_hr < VITAL_HR_CRITICAL_LOW) || (g_spo2 > 0 && g_spo2 <= VITAL_SPO2_CRITICAL)) triage = ResQ::TRIAGE_RED;
   else if (g_hr > VITAL_HR_WARN_HIGH || (g_hr > 0 && g_hr < VITAL_HR_WARN_LOW) || (g_spo2 > 0 && g_spo2 <= VITAL_SPO2_WARN)) triage = ResQ::TRIAGE_YELLOW;
 

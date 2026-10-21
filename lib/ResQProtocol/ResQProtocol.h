@@ -43,8 +43,13 @@ enum TriageLevel : uint8_t {
   TRIAGE_GREEN  = 0,
   TRIAGE_YELLOW = 1,
   TRIAGE_RED    = 2,
-  TRIAGE_BLACK  = 3,
+  TRIAGE_BLACK  = 3,   // sensor on skin but no pulse found
+  TRIAGE_NO_DATA = 4,  // no reading: sensor missing, band not worn, or still settling
 };
+
+// With TRIAGE_NO_DATA, spo2 == SPO2_NO_SENSOR means the band has no working
+// pulse sensor at all (hardware fault) rather than just not being worn.
+constexpr uint8_t SPO2_NO_SENSOR = 0xFF;
 
 // Why the dispatcher picked this band (sent inside AssignmentPacket)
 enum AssignReason : uint8_t {

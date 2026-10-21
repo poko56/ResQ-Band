@@ -5,6 +5,19 @@ MAX30105 particleSensor;
 uint8_t current_hr = 0;
 uint8_t current_spo2 = 0;
 
+// Pulse sensor fitted on this band, told apart by PART_ID (reg 0xFF) at init.
+// Both share I2C address 0x57. The SparkFun library only drives the MAX30102;
+// the older MAX30100 has a different register map and is driven directly here.
+enum class PulseChip : uint8_t { NONE, MAX30102, MAX30100 };
+static PulseChip s_chip = PulseChip::NONE;
+
+static bool     s_present = false;      // a pulse sensor was found
+static uint32_t s_contact_since = 0;    // millis() when skin contact began, 0 = none
+static uint32_t s_last_probe_ms = 0;
+
+bool sensor_present() { return s_present; }
+uint32_t contact_ms() { return s_contact_since ? millis() - s_contact_since : 0; }
+
 static const byte RATE_SIZE = 8;   // wider window -> steadier average
 static byte rates[RATE_SIZE];
 static byte rateSpot = 0;
@@ -16,6 +29,14 @@ static float beatsPerMinute;
 // notch. checkForBeat() happily fires on both, which double-counts and roughly
 // doubles the reported rate (a real 90 bpm read as ~190). Ignoring any
 // detection that lands too soon after the previous one rejects the notch.
+// IR DC level that means skin is on the sensor. At IR drive 0x20 a fingertip
+// reads ~110k; band 384E8B2B lying untouched read ~21k (light bouncing off the
+// case), which the old 20k threshold took for contact and found a fake HR 47.
+static const long SKIN_IR_MIN_MAX30102 = 50000;
+// MAX30100 (16-bit ADC, IR 27.1 mA) on band 3CB88B2B: untouched ~4.3k,
+// fingertip ~50k (below the 65535 ceiling, pulse swing ~1.3k).
+static const long SKIN_IR_MIN_MAX30100 = 15000;
+static long skin_ir_min() { return s_chip == PulseChip::MAX30100 ? SKIN_IR_MIN_MAX30100 : SKIN_IR_MIN_MAX30102; }
 static const long MIN_BEAT_INTERVAL_MS = 300;   // ceiling of 200 bpm
 static const float HR_MIN_BPM = 30.0f;
 static const float HR_MAX_BPM = 180.0f;
@@ -29,7 +50,7 @@ static const float HR_MAX_BPM = 180.0f;
 // not a clinical value. Readings outside 70-100 % (motion, poor contact) are
 // dropped, and a valid HR is required.
 static const uint32_t SPO2_WINDOW_MS = 4000;
-static const uint32_t SPO2_MIN_SAMPLES = 200;   // ~1 s at 200 sps
+static const uint32_t SPO2_MIN_SAMPLES = 200;   // ~1 s at 200 sps (MAX30102), ~2 s at 100 sps (MAX30100)
 static struct {
   uint32_t start_ms = 0;
   uint32_t n = 0;
@@ -84,6 +105,69 @@ static void configure_max() {
   particleSensor.setPulseAmplitudeIR(0x20);   // mid drive, DC ~110k, no clipping
 }
 
+// ---- MAX30100 ------------------------------------------------------------------
+static const uint8_t MAX30100_ADDR       = 0x57;
+static const uint8_t M100_FIFO_WR_PTR    = 0x02;
+static const uint8_t M100_OVF_COUNTER    = 0x03;
+static const uint8_t M100_FIFO_RD_PTR    = 0x04;
+static const uint8_t M100_FIFO_DATA      = 0x05;
+static const uint8_t M100_MODE_CONFIG    = 0x06;   // bit6 reset, [2:0] mode
+static const uint8_t M100_SPO2_CONFIG    = 0x07;   // bit6 hi-res, [4:2] rate, [1:0] pulse width
+static const uint8_t M100_LED_CONFIG     = 0x09;   // [7:4] red current, [3:0] IR current
+static const uint8_t PART_ID_MAX30100    = 0x11;
+static const uint8_t PART_ID_MAX30102    = 0x15;
+
+static int read_reg(uint8_t reg) {
+  Wire.beginTransmission(MAX30100_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return -1;
+  if (Wire.requestFrom(MAX30100_ADDR, (uint8_t)1) != 1) return -1;
+  return Wire.read();
+}
+
+static bool write_reg(uint8_t reg, uint8_t v) {
+  Wire.beginTransmission(MAX30100_ADDR);
+  Wire.write(reg);
+  Wire.write(v);
+  return Wire.endTransmission() == 0;
+}
+
+// SpO2 mode (red + IR), 100 samples/s, 1600 us pulses = 16-bit ADC with hi-res,
+// both LEDs at 27.1 mA (0x8). Full 50 mA is the common library default but
+// tends to saturate through a fingertip, the same problem the MAX30102 had.
+static void configure_max30100() {
+  write_reg(M100_MODE_CONFIG, 0x40);                  // reset
+  for (int i = 0; i < 20 && (read_reg(M100_MODE_CONFIG) & 0x40); i++) delay(2);
+  write_reg(M100_SPO2_CONFIG, 0x40 | (0x01 << 2) | 0x03);
+  write_reg(M100_LED_CONFIG, (0x8 << 4) | 0x8);
+  write_reg(M100_FIFO_WR_PTR, 0);
+  write_reg(M100_OVF_COUNTER, 0);
+  write_reg(M100_FIFO_RD_PTR, 0);
+  write_reg(M100_MODE_CONFIG, 0x03);                  // SpO2 mode
+}
+
+// Drain the 16-deep FIFO. Each sample is IR then red, 16-bit big-endian.
+template <typename F>
+static void read_max30100_fifo(F on_sample) {
+  const int wr = read_reg(M100_FIFO_WR_PTR), rd = read_reg(M100_FIFO_RD_PTR), ovf = read_reg(M100_OVF_COUNTER);
+  if (wr < 0 || rd < 0) return;
+  int n = (wr - rd) & 0x0F;
+  if (n == 0 && ovf > 0) n = 16;                      // full and wrapped
+  while (n > 0) {
+    const int batch = n > 8 ? 8 : n;                  // 32 bytes per read
+    Wire.beginTransmission(MAX30100_ADDR);
+    Wire.write(M100_FIFO_DATA);
+    if (Wire.endTransmission(false) != 0) return;
+    if (Wire.requestFrom(MAX30100_ADDR, (uint8_t)(batch * 4)) != batch * 4) return;
+    for (int i = 0; i < batch; i++) {
+      const uint16_t ir  = (uint16_t)(Wire.read() << 8) | Wire.read();
+      const uint16_t red = (uint16_t)(Wire.read() << 8) | Wire.read();
+      on_sample((uint32_t)red, (long)ir);
+    }
+    n -= batch;
+  }
+}
+
 // Tear down and rebuild the I2C bus. The ESP32 hardware I2C peripheral can latch
 // into a permanent timeout state ("returned Error 263" = ESP_ERR_TIMEOUT) after
 // a single glitch - e.g. the LoRa radio starting on a marginal board. Once
@@ -95,7 +179,9 @@ static void recover_i2c_bus() {
   delay(2);
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.setClock(100000);
-  if (particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
+  if (s_chip == PulseChip::MAX30100) {
+    if (read_reg(0xFF) == PART_ID_MAX30100) configure_max30100();
+  } else if (particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
     configure_max();
   }
 }
@@ -116,23 +202,29 @@ void init_sensors() {
   //    MAX30102/05, force initialisation via setup() regardless of what begin()
   //    returned. begin() is still called first because setup() relies on the
   //    library's stored _i2caddr.
-  auto readReg = [](uint8_t reg) -> int {
-    Wire.beginTransmission(0x57);
-    Wire.write(reg);
-    if (Wire.endTransmission(false) != 0) return -1;
-    if (Wire.requestFrom((uint8_t)0x57, (uint8_t)1) != 1) return -1;
-    return Wire.read();
-  };
+  // MAX30100 first: SparkFun's begin() would gate it out on PART_ID anyway.
+  const int part0 = read_reg(0xFF);
+  if (part0 == PART_ID_MAX30100) {
+    s_chip = PulseChip::MAX30100;
+    s_present = true;
+    s_last_probe_ms = millis();
+    Serial.println("[Sensors] MAX30100 Found! (PART_ID=0x11)");
+    configure_max30100();
+    return;
+  }
 
   bool max_ok = particleSensor.begin(Wire, I2C_SPEED_STANDARD);
-  int part = readReg(0xFF);
+  int part = read_reg(0xFF);
   Serial.printf("[Sensors] MAX30102 begin=%d PART_ID=0x%02X\n", max_ok, part & 0xFF);
-  if (!max_ok && part == 0x15) {
+  if (!max_ok && part == PART_ID_MAX30102) {
     Serial.println("[Sensors] begin() gate failed but PART_ID ok -> forcing init");
     max_ok = true;   // chip verified present; proceed with setup() below
   }
+  s_present = max_ok;
+  s_chip = max_ok ? PulseChip::MAX30102 : PulseChip::NONE;
+  s_last_probe_ms = millis();
   if (!max_ok) {
-    Serial.println("[Sensors] MAX30102 was not found. Please check wiring/power.");
+    Serial.println("[Sensors] No MAX30102/MAX30100 found. Please check wiring/power.");
   } else {
     Serial.println("[Sensors] MAX30102 Found!");
     // MAX30102 has RED + IR only -> ledMode 2 (the library default is 3, which
@@ -152,18 +244,20 @@ void init_sensors() {
 }
 
 void poll_sensors() {
-  // Update Heart Rate
-  particleSensor.check(); // Check the sensor for new data
+  // No sensor: polling would only spin I2C errors and bus recoveries. Probe
+  // again once a minute in case a loose connector comes back.
+  if (!s_present) {
+    current_hr = 0; current_spo2 = 0; s_contact_since = 0;
+    if (millis() - s_last_probe_ms > 60000) init_sensors();
+    return;
+  }
 
   // poll_sensors() runs every loop iteration but the FIFO only has fresh data
   // on some of them. Keep the last real sample in a static, otherwise a poll
   // with an empty FIFO looks like "IR = 0" and wipes the heart rate below.
   static long s_last_ir = 0;
   bool got_sample = false;
-  while (particleSensor.available()) {
-    long irValue = particleSensor.getFIFOIR(); // Read from FIFO
-    uint32_t redValue = particleSensor.getFIFORed();
-    particleSensor.nextSample(); // Move to next sample
+  auto on_sample = [&](uint32_t redValue, long irValue) {
     spo2_add_sample(redValue, (uint32_t)irValue);
     s_last_ir = irValue;
     got_sample = true;
@@ -175,7 +269,7 @@ void poll_sensors() {
       // dicrotic notch of the same pulse, not a new beat. Drop it WITHOUT
       // moving lastBeat, so the next real systolic peak is timed from the
       // genuine previous beat.
-      if (delta < MIN_BEAT_INTERVAL_MS) continue;
+      if (delta < MIN_BEAT_INTERVAL_MS) return;
 
       lastBeat = millis();
 
@@ -194,6 +288,18 @@ void poll_sensors() {
         avg_hr /= rateCount;
         current_hr = (uint8_t)avg_hr;
       }
+    }
+  };
+
+  if (s_chip == PulseChip::MAX30100) {
+    read_max30100_fifo(on_sample);
+  } else {
+    particleSensor.check(); // Check the sensor for new data
+    while (particleSensor.available()) {
+      long irValue = particleSensor.getFIFOIR(); // Read from FIFO
+      uint32_t redValue = particleSensor.getFIFORed();
+      particleSensor.nextSample(); // Move to next sample
+      on_sample(redValue, irValue);
     }
   }
 
@@ -216,8 +322,14 @@ void poll_sensors() {
 
   // SpO2 from the red/IR ratio (approximate, see spo2_update); 0 = no value,
   // which the web/handheld render as "--".
-  current_spo2 = spo2_update(millis(), s_last_ir > 20000, current_hr);
-  if (s_last_ir <= 20000) {
+  const bool skin = s_last_ir > skin_ir_min();
+  current_spo2 = spo2_update(millis(), skin, current_hr);
+  if (skin) {
+    if (!s_contact_since) s_contact_since = millis() | 1;
+  } else {
+    s_contact_since = 0;
+  }
+  if (!skin) {
     current_hr = 0;   // no finger on the sensor -> no valid HR
     rateCount  = 0;   // drop stale beats so the next contact starts clean
     rateSpot   = 0;
