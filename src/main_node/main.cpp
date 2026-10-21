@@ -87,6 +87,12 @@ static uint32_t g_rx_dropped           = 0;
 static uint32_t g_sos_pending_until_ms = 0;   // local alarm deadline
 static bool     g_local_alarm_active   = false;
 static bool     g_buzzer_muted         = false;   // saved in NVS, see set_buzzer_muted()
+// Buzzer pitches; see the Buzzer section for how to pick them.
+static constexpr uint16_t BUZZ_TEST_TONES[] = {2000, 2700, 3500, 4000};
+// Loudest on the fitted buzzer in the 4-tone test (2026-10-21): 3.5 kHz. The
+// siren's second pitch stays close to it so both halves stay loud.
+static constexpr uint16_t ALARM_TONE_A = 3500;
+static constexpr uint16_t ALARM_TONE_B = 3000;
 static bool     g_lora_ready           = false;
 static int      g_pending_dispatch_idx = -1;
 
@@ -105,6 +111,7 @@ static struct {
 // ----------------------------------------------------------------------------
 static void   send_json_event(const JsonDocument& doc);
 static void   buzzer_begin();
+static void   play_boot_jingle();
 static void   beep(uint16_t ms, uint16_t freq_hz);
 static void   update_alarm_buzzer(uint32_t now);
 static void   poll_mute_button(uint32_t now);
@@ -163,7 +170,7 @@ void setup() {
     g_buzzer_muted = prefs.getBool("muted", false);
     prefs.end();
   }
-  if (!g_buzzer_muted) beep(150, 2500);   // boot beep: proves the buzzer works
+  if (!g_buzzer_muted) play_boot_jingle();   // also proves the buzzer works
 
   g_main_id = (uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF);
 
@@ -375,6 +382,17 @@ void loop() {
 #endif
 static constexpr uint8_t BUZZER_LEDC_CH = 0;
 
+// Loudness. ledcWriteTone already drives a 50 % square wave (the most a single
+// pin can give), so what is left in firmware is (1) the strongest GPIO drive,
+// ~40 mA instead of the default ~20 mA, and (2) a pitch at the buzzer's
+// resonance, which is far louder than a few hundred Hz off it. The test
+// button plays BUZZ_TEST_TONES in turn so the loudest one can be picked;
+// ALARM_TONE_A/B (declared at the top) are the siren's two pitches.
+
+static void buzzer_max_drive() {
+  gpio_set_drive_capability((gpio_num_t)PIN_BUZZER, GPIO_DRIVE_CAP_3);
+}
+
 static void buzzer_tone(uint16_t freq_hz) {   // 0 = silent
 #if BUZZER_PASSIVE
   static uint16_t s_freq = 0xFFFF;
@@ -393,6 +411,7 @@ static void buzzer_begin() {
 #else
   pinMode(PIN_BUZZER, OUTPUT);
 #endif
+  buzzer_max_drive();
   buzzer_tone(0);
 }
 
@@ -400,6 +419,27 @@ static void beep(uint16_t ms, uint16_t freq_hz) {
   buzzer_tone(freq_hz);
   delay(ms);
   buzzer_tone(0);
+}
+
+// Boot jingle (~0.8 s, blocking; runs once in setup): a game-style power-up.
+// A major arpeggio (root, 3rd, 5th, octave) played fast three times, each
+// round a semitone higher (C7, C#7, D7), then a held A7 (3.52 kHz) - right
+// at this buzzer's loudest pitch (see ALARM_TONE_A).
+static void play_boot_jingle() {
+#if BUZZER_PASSIVE
+  static const uint16_t roots[] = {2093, 2217, 2349};          // C7, C#7, D7
+  for (uint16_t root : roots) {
+    for (int semis : {0, 4, 7, 12}) {
+      buzzer_tone((uint16_t)(root * powf(2.0f, semis / 12.0f)));
+      delay(38);
+    }
+  }
+  buzzer_tone(0); delay(40);
+  buzzer_tone(3520); delay(260);
+  buzzer_tone(0);
+#else
+  beep(150, 1);
+#endif
 }
 
 static void send_buzzer_state() {
@@ -416,15 +456,15 @@ static void set_buzzer_muted(bool muted) {
   prefs.begin("resq", false);
   prefs.putBool("muted", muted);
   prefs.end();
-  if (!muted) beep(80, 2500);   // audible confirmation that sound is back on
+  if (!muted) beep(80, ALARM_TONE_A);   // audible confirmation that sound is back on
   send_buzzer_state();
 }
 
 // Test sound (web "ทดสอบเสียง" button / buzz_test command). Runs from loop()
-// without blocking so LoRa keeps receiving, and plays even when muted:
-//   0.0-1.5 s  2.5 kHz tone  -> heard on a passive piezo
-//   2.0-3.5 s  steady DC     -> heard on an active buzzer
-// Hearing neither means a wiring fault (pin 17 / GND).
+// without blocking so LoRa keeps receiving, and plays even when muted.
+// Passive buzzer: each of BUZZ_TEST_TONES for 0.8 s with a 0.3 s gap, low to
+// high, so the operator can hear which pitch is loudest on this buzzer.
+// Active buzzer: 1.5 s on. Hearing nothing means a wiring fault (pin / GND).
 static uint32_t g_buzz_test_start_ms = 0;   // 0 = not running
 
 static void start_buzz_test() { g_buzz_test_start_ms = millis() | 1; }
@@ -434,26 +474,16 @@ static bool update_buzz_test(uint32_t now) {
   if (g_buzz_test_start_ms == 0) return false;
   const uint32_t t = now - g_buzz_test_start_ms;
 #if BUZZER_PASSIVE
-  static bool s_dc = false;   // pin temporarily detached from LEDC for the DC phase
-  if (t < 1500) {
-    buzzer_tone(2500);
-  } else if (t < 2000) {
-    buzzer_tone(0);
-  } else if (t < 3500) {
-    if (!s_dc) {
-      s_dc = true;
-      ledcDetachPin(PIN_BUZZER);
-      pinMode(PIN_BUZZER, OUTPUT);
-      digitalWrite(PIN_BUZZER, HIGH);
-    }
+  constexpr uint32_t TONE_MS = 800, STEP_MS = 1100;
+  constexpr size_t N = sizeof(BUZZ_TEST_TONES) / sizeof(BUZZ_TEST_TONES[0]);
+  const size_t i = t / STEP_MS;
+  if (i >= N) { buzzer_tone(0); g_buzz_test_start_ms = 0; return true; }
+  if (t % STEP_MS < TONE_MS) {
+    static size_t s_logged = SIZE_MAX;
+    if (s_logged != i) { s_logged = i; Serial.printf("[BUZZ] test tone %u: %u Hz\n", (unsigned)(i + 1), BUZZ_TEST_TONES[i]); }
+    buzzer_tone(BUZZ_TEST_TONES[i]);
   } else {
-    if (s_dc) {
-      s_dc = false;
-      digitalWrite(PIN_BUZZER, LOW);
-      ledcAttachPin(PIN_BUZZER, BUZZER_LEDC_CH);
-    }
     buzzer_tone(0);
-    g_buzz_test_start_ms = 0;
   }
 #else
   if (t < 1500) buzzer_tone(1);
@@ -467,7 +497,7 @@ static void update_alarm_buzzer(uint32_t now) {
   if (update_buzz_test(now)) return;
   if (!g_local_alarm_active || g_buzzer_muted) { buzzer_tone(0); return; }
 #if BUZZER_PASSIVE
-  buzzer_tone(((now / 250) & 1) ? 2800 : 2000);   // two-tone siren
+  buzzer_tone(((now / 250) & 1) ? ALARM_TONE_A : ALARM_TONE_B);   // two-tone siren
 #else
   buzzer_tone((now / 250) & 1);
 #endif
