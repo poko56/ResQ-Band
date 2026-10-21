@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <LittleFS.h>
+#include "Calibration.h"
 
 static WebServer server(80);
 
@@ -135,6 +136,14 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
     input[type=file]{width:100%;font-size:12px;color:var(--dim);margin:2px 0 8px;}
     .hint{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5;}
+    details.panel>summary{list-style:none;cursor:pointer;}
+    details.panel>summary::-webkit-details-marker{display:none;}
+    .cal-in{display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px;}
+    .cal-in input{height:32px;padding:0 8px;font-size:14px;color:var(--text);background:var(--input);
+      border:1px solid var(--border);border-radius:2px;width:100%;}
+    .cal-in .btn{width:auto;}
+    .cal-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;}
+    .ok{color:var(--green);} .warn{color:var(--yellow);}
     #debug_msg{font-size:10px;color:var(--muted);text-align:center;word-break:break-all;padding:2px 4px;}
   </style>
 </head>
@@ -193,6 +202,36 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         </div>
       </div>
     </div>
+
+    <details class="panel" id="cal-panel">
+      <summary class="panel-header"><span>ปรับเทียบระยะ ▾</span><span class="hval" id="cal-model">--</span></summary>
+      <div class="panel-body">
+        <div class="hint" style="margin:0 0 8px;">
+          1) ล็อกกำไลที่จะใช้ วางกำไลนิ่ง ๆ สูงพอ ๆ กับเครื่องนี้<br>
+          2) ยืนห่างตามระยะที่วัดด้วยตลับเมตร ใส่ระยะแล้วกด <b>วัด</b> เครื่องจะเก็บสัญญาณ 3 รอบ (~30 วิ) ห้ามขยับ<br>
+          3) ทำซ้ำหลายระยะ เช่น 1, 2, 5, 10, 15, 20, 30 ม. (สูงสุด 10 จุด) แล้วกด <b>คำนวณและบันทึก</b>
+        </div>
+        <div class="row"><span class="label">RSSI กำไลที่ล็อกตอนนี้</span><span class="val mono" id="cal-live">--</span></div>
+        <div class="cal-in">
+          <input id="cal-d" type="number" inputmode="decimal" min="0.3" step="0.1" placeholder="ระยะ (เมตร)">
+          <button class="btn accent" id="cal-rec" onclick="calAdd()">วัด</button>
+        </div>
+        <div class="hint" id="cal-status" style="margin:0 0 6px;"></div>
+        <div class="tbl-scroll">
+          <table>
+            <thead><tr><th>#</th><th>ระยะ</th><th>RSSI</th><th>ประมาณจากสูตรใหม่</th></tr></thead>
+            <tbody id="cal-pts"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">ยังไม่มีจุด</td></tr></tbody>
+          </table>
+        </div>
+        <div class="hint" id="cal-fit"></div>
+        <div class="cal-btns">
+          <button class="btn accent" onclick="calCmd('apply')" style="grid-column:1/3;">คำนวณและบันทึก</button>
+          <button class="btn" onclick="calCmd('undo')">ลบจุดล่าสุด</button>
+          <button class="btn" onclick="calCmd('clear','ล้างจุดที่วัดทั้งหมด?')">ล้างทั้งหมด</button>
+          <button class="btn" onclick="calCmd('reset','คืนค่าเริ่มต้นจากโรงงาน?')" style="grid-column:1/3;">คืนค่าเริ่มต้น</button>
+        </div>
+      </div>
+    </details>
 
     <div class="panel">
       <div class="panel-header"><span>Roster Sync · Offline</span><span class="hval" id="roster-count">--</span></div>
@@ -253,8 +292,48 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     const FOUND_TEXT = ['', 'กำลังแจ้งศูนย์… (ส่งซ้ำ 3 รอบ)', '✅ แจ้งศูนย์แล้ว'];
     const RING_TEXT = ['', 'กำลังเรียกกำไล… (รอกำไลตื่น สูงสุด ~12 วิ)', '✅ กำไลกำลังส่งเสียง', '⚠️ กำไลไม่ตอบ (อยู่นอกระยะหรือปิดอยู่)'];
 
-    const TRIAGE_LABEL = ['SAFE','WATCH','CRITICAL','NO PULSE'];
-    const TRIAGE_COLOR = ['#5fb878','#d4a235','#d04545','#909090'];
+    const TRIAGE_LABEL = ['SAFE','WATCH','CRITICAL','NO PULSE','NO DATA'];
+    const TRIAGE_COLOR = ['#5fb878','#d4a235','#d04545','#909090','#6b7280'];
+
+    let calMsg = '';
+    function calAdd(){
+      const d = parseFloat(document.getElementById('cal-d').value);
+      if(!(d > 0)){ calMsg = 'ใส่ระยะเป็นเมตรก่อน'; return; }
+      calMsg = '';
+      fetch('/api/cal/add?d='+d, { method:'POST' }).then(r=>r.json())
+        .then(x=>{ calMsg = x.success ? '' : ('⚠️ '+x.error); }).catch(()=>{});
+    }
+    function calCmd(cmd, ask){
+      if(ask && !confirm(ask)) return;
+      fetch('/api/cal/'+cmd, { method:'POST' }).then(r=>r.json())
+        .then(x=>{ calMsg = x.success ? (cmd==='apply' ? '✅ บันทึกแล้ว เครื่องใช้ค่านี้คำนวณระยะตั้งแต่ตอนนี้' : '') : ('⚠️ '+x.error); }).catch(()=>{});
+    }
+    function renderCal(c, data){
+      if(!c) return;
+      document.getElementById('cal-model').innerText =
+        c.ref.toFixed(1)+' dBm · n '+c.n.toFixed(2)+(c.def ? ' (ค่าเริ่มต้น)' : ' (ปรับเทียบแล้ว)');
+      const tb = (data.bands||[]).find(b=>b.id===data.target_id);
+      document.getElementById('cal-live').innerText =
+        !data.target_id ? 'ยังไม่ล็อกกำไล' : (tb && tb.rssi > -127 ? tb.rssi+' dBm' : 'ยังไม่ได้ยิน');
+      const rec = document.getElementById('cal-rec');
+      rec.disabled = c.cap || !data.target_id;
+      rec.innerText = c.cap ? ('กำลังวัด '+c.got+'/'+c.need+'…') : 'วัด';
+      document.getElementById('cal-status').innerText = c.cap
+        ? 'กำลังเก็บสัญญาณที่ '+c.capd+' ม. ('+c.got+'/'+c.need+') — อย่าขยับ'
+        : (c.err ? '⚠️ '+c.err : calMsg);
+      const f = c.fit;
+      const est = r => f.ok ? Math.pow(10,(f.ref-r)/(10*f.n)).toFixed(1)+' ม.' : '--';
+      document.getElementById('cal-pts').innerHTML = c.pts.length
+        ? c.pts.map((p,i)=>'<tr><td>'+(i+1)+'</td><td class="mono">'+p[0]+' ม.</td><td class="mono">'+p[1].toFixed(1)+'</td><td class="mono">'+est(p[1])+'</td></tr>').join('')
+        : '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">ยังไม่มีจุด</td></tr>';
+      const fe = document.getElementById('cal-fit');
+      if(f.ok){
+        const q = f.r2 >= 0.9 ? '<span class="ok">ดีมาก</span>' : f.r2 >= 0.75 ? '<span class="warn">พอใช้</span>' : '<span class="warn">แกว่งมาก ลองวัดเพิ่ม</span>';
+        fe.innerHTML = 'ผลคำนวณ: RSSI@1m <b>'+f.ref.toFixed(1)+'</b> dBm · n <b>'+f.n.toFixed(2)+'</b> · R² '+f.r2.toFixed(2)+' ('+q+') — ยังไม่ใช้จนกว่าจะกดบันทึก';
+      } else {
+        fe.innerText = c.pts.length ? f.err : '';
+      }
+    }
 
     function updateData(signal){
       return fetch('/api/data', { signal }).then(r=>r.json()).then(data=>{
@@ -334,10 +413,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             if(pInfo && pInfo.medical && pInfo.medical.conditions && pInfo.medical.conditions.length)
               badge = '<span style="display:inline-block;margin-top:3px;padding:1px 4px;font-size:9px;background:rgba(208,69,69,.2);color:var(--red);">'+pInfo.medical.conditions[0]+'</span>';
             const hr = '<span style="color:var(--red)">&#9829;</span> '+(b.hr||'--');
-            return '<tr><td>'+nm+badge+'</td><td>'+hr+'</td><td class="mono">'+b.rssi+'</td><td>'+btn+'</td></tr>';
+            return '<tr><td>'+nm+badge+'</td><td>'+hr+'</td><td class="mono">'+(b.rssi<=-127?'—':b.rssi)+'</td><td>'+btn+'</td></tr>';
           }).join('');
         }
         document.getElementById('found-status').innerText = FOUND_TEXT[data.found] || '';
+        renderCal(data.cal, data);
         setLink(true);
       }).catch(()=>setLink(false));
     }
@@ -361,6 +441,48 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
+static String cal_json() {
+  size_t n = 0;
+  const CalPoint* pts = cal_points(&n);
+  const CalFit f = cal_fit();
+  String j = "{";
+  j += "\"ref\":" + String(cal_ref_1m(), 1) + ",\"n\":" + String(cal_n(), 2);
+  j += ",\"def\":" + String(cal_is_default() ? "true" : "false");
+  j += ",\"cap\":" + String(cal_capturing() ? "true" : "false");
+  j += ",\"got\":" + String(cal_captured()) + ",\"need\":" + String(CAL_SAMPLES_PER_POINT);
+  j += ",\"capd\":" + String(cal_capture_distance(), 1);
+  j += ",\"err\":\"" + String(cal_last_error()) + "\"";
+  j += ",\"pts\":[";
+  for (size_t i = 0; i < n; i++) {
+    if (i) j += ",";
+    j += "[" + String(pts[i].distance_m, 1) + "," + String(pts[i].rssi, 1) + "]";
+  }
+  j += "],\"fit\":{\"ok\":" + String(f.ok ? "true" : "false");
+  j += ",\"ref\":" + String(f.ref_1m, 1) + ",\"n\":" + String(f.n, 2) + ",\"r2\":" + String(f.r2, 2);
+  j += ",\"err\":\"" + String(f.error) + "\"}}";
+  return j;
+}
+
+static void send_result(bool ok, const char* error) {
+  String r = String("{\"success\":") + (ok ? "true" : "false");
+  if (!ok) r += String(",\"error\":\"") + error + "\"";
+  r += "}";
+  server.send(200, "application/json", r);
+}
+
+void handleCalAdd() {
+  const float d = server.hasArg("d") ? server.arg("d").toFloat() : 0;
+  const char* err = "";
+  send_result(cal_start(s_target_id, d, &err), err);
+}
+void handleCalUndo()  { cal_remove_last(); send_result(true, ""); }
+void handleCalClear() { cal_clear(); send_result(true, ""); }
+void handleCalReset() { cal_reset(); send_result(true, ""); }
+void handleCalApply() {
+  const CalFit f = cal_apply();
+  send_result(f.ok, f.error);
+}
+
 void handleRoot() {
   server.send(200, "text/html", INDEX_HTML);
 }
@@ -376,6 +498,7 @@ void handleApiData() {
   json += "\"triage\":" + String(s_v_triage) + ",";
   json += "\"ring\":" + String((int)s_ring_state) + ",";
   json += "\"found\":" + String((int)s_found_state) + ",";
+  json += "\"cal\":" + cal_json() + ",";
   
   String extDebug = g_webui_debug + " | T:" + String(s_target_id, HEX);
   extDebug += " [";
@@ -499,6 +622,11 @@ void init_web_ui() {
   server.on("/api/ring", HTTP_POST, handleRing);
   server.on("/api/found", HTTP_POST, handleFound);
   server.on("/api/ring", HTTP_OPTIONS, handleOptions);
+  server.on("/api/cal/add", HTTP_POST, handleCalAdd);
+  server.on("/api/cal/undo", HTTP_POST, handleCalUndo);
+  server.on("/api/cal/clear", HTTP_POST, handleCalClear);
+  server.on("/api/cal/apply", HTTP_POST, handleCalApply);
+  server.on("/api/cal/reset", HTTP_POST, handleCalReset);
   // Browsers always ask for a favicon; answer it instead of logging a 404.
   server.on("/favicon.ico", HTTP_GET, []() { server.send(204); });
   server.onNotFound([]() { server.send(404, "text/plain", "Not found"); });

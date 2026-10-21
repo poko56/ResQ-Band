@@ -1,12 +1,18 @@
 #pragma once
 #include <Arduino.h>
 
+#define SEEN_RSSI_SAMPLES 3
+#define RSSI_NONE (-127)
+
 struct SeenBand {
   uint32_t id;
-  int16_t rssi;
+  int16_t rssi;            // median of the recent effective readings, RSSI_NONE if never heard directly
   uint8_t hr;
   uint8_t spo2;
   uint32_t last_seen_ms;
+  uint32_t last_heard_ms;  // last packet this handheld received from the band itself
+  int16_t  samples[SEEN_RSSI_SAMPLES];
+  uint8_t  n_samples;
 };
 
 extern uint32_t webui_wants_target_id;

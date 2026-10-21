@@ -7,6 +7,7 @@
 #include "ResQProtocol.h"
 #include "Display.h"
 #include "WebUI.h"
+#include "Calibration.h"
 
 // Single last-metre mode: LoRa RSSI hot/cold + distance from the band's
 // heartbeat. (BLE pinpoint removed - the band's BT beacon browned out its rail.)
@@ -21,27 +22,34 @@ static uint8_t    g_last_batt    = 0;
 static uint8_t    g_last_triage  = 0;
 
 // ---- RSSI -> distance (LoRa last-metre estimate) ---------------------------
-// Log-distance path loss:  d = 10 ^ ((RSSI_REF_1M - rssi) / (10 * PATH_LOSS_N))
+// Log-distance path loss:  d = 10 ^ ((RSSI@1m - rssi) / (10 * n))
 //
-// RSSI_REF_1M is the packet RSSI you would measure ~1 m from the band. It scales
-// with the band's TX power, so we DERIVE it from LORA_BAND_TX_POWER_DBM plus one
-// calibration constant, RSSI_1M_LOSS (the path loss at 1 m, antennas included).
-// Because the reference tracks TX power, dropping the band to 2 dBm no longer
-// inflates the distance - the whole RSSI curve shifts down and so does the ref.
-//
-// To calibrate in the field: stand 1 m from the band, read the RSSI the handheld
-// shows for it, then set RSSI_1M_LOSS = LORA_BAND_TX_POWER_DBM - that_rssi.
-//   e.g. TX = 2 dBm and RSSI at 1 m = -38  ->  RSSI_1M_LOSS = 2 - (-38) = 40
-static const float RSSI_1M_LOSS = 87.5f;                        // <-- field-calibrate
-static const float RSSI_REF_1M  = (float)LORA_BAND_TX_POWER_DBM - RSSI_1M_LOSS;   // bands transmit at this power
-static const float PATH_LOSS_N  = 2.5f;    // 2.0 = free space; higher through rubble
+// RSSI@1m and n come from Calibration (set in the field from the WebUI's
+// calibration panel and kept in NVS). Until then these defaults apply.
+// RSSI@1m scales with the band's TX power, so the default is derived from
+// LORA_BAND_TX_POWER_DBM plus the path loss at 1 m, RSSI_1M_LOSS.
+// Field fit 2026-10-20, band -> handheld at 1/2/5/8/10/15/23.5 m:
+// RSSI@1m = -75.8 dBm, n = 2.51, R^2 0.97  ->  RSSI_1M_LOSS = 10 - (-75.8) ~= 86.
+// The dispatcher web's default path-loss model uses the same curve.
+static const float RSSI_1M_LOSS = 86.0f;
+static const float DEFAULT_RSSI_REF_1M = (float)LORA_BAND_TX_POWER_DBM - RSSI_1M_LOSS;
+static const float DEFAULT_PATH_LOSS_N = 2.5f;    // 2.0 = free space; higher through rubble
+
+// Packet RSSI stops at the noise floor (~-120 dBm at SF9); below it the SNR
+// goes negative and the signal power is about RSSI + SNR.
+// SpO2 0xFF flags "band has no pulse sensor" (with TRIAGE_NO_DATA); show it as no value.
+static uint8_t shown_spo2(uint8_t v) { return v == ResQ::SPO2_NO_SENSOR ? 0 : v; }
+
+static int16_t effective_rssi(int16_t rssi, float snr) {
+  return snr < 0 ? (int16_t)lroundf((float)rssi + snr) : rssi;
+}
 
 // Rough distance in metres from a packet RSSI (<0 => unknown / out of range).
 static float rssi_to_distance_m(int16_t rssi) {
-  if (rssi >= 0 || rssi <= -120) return -1.0f;   // no / invalid reading
-  float d = powf(10.0f, (RSSI_REF_1M - (float)rssi) / (10.0f * PATH_LOSS_N));
-  if (d < 0.1f)   d = 0.1f;                        // clamp implausibly small
-  if (d > 500.0f) return -1.0f;                    // beyond useful range
+  if (rssi >= 0 || rssi <= RSSI_NONE) return -1.0f;   // no / invalid reading
+  float d = powf(10.0f, (cal_ref_1m() - (float)rssi) / (10.0f * cal_n()));
+  if (d < 0.5f)    d = 0.5f;                       // clamp implausibly small
+  if (d > 2000.0f) return -1.0f;                   // beyond useful range
   return d;
 }
 
@@ -49,29 +57,49 @@ static float rssi_to_distance_m(int16_t rssi) {
 static SeenBand g_seen_bands[MAX_SEEN_BANDS];
 static size_t g_seen_count = 0;
 
+static int16_t median_rssi(const int16_t* v, uint8_t n) {
+  int16_t s[SEEN_RSSI_SAMPLES];
+  memcpy(s, v, n * sizeof(int16_t));
+  for (uint8_t i = 1; i < n; i++)
+    for (uint8_t j = i; j > 0 && s[j - 1] > s[j]; j--) { int16_t t = s[j]; s[j] = s[j - 1]; s[j - 1] = t; }
+  return (n % 2) ? s[n / 2] : (int16_t)((s[n / 2 - 1] + s[n / 2]) / 2);
+}
+
+// rssi = RSSI_NONE when the band was not heard by this handheld (e.g. vitals
+// relayed in an ASSIGNMENT): vitals update, distance stays on our own readings.
 static void update_seen_band(uint32_t id, int16_t rssi, uint8_t hr, uint8_t spo2) {
   uint32_t now = millis();
-  for (size_t i = 0; i < g_seen_count; i++) {
-    if (g_seen_bands[i].id == id) {
-      g_seen_bands[i].rssi = rssi;
-      g_seen_bands[i].hr = hr;
-      g_seen_bands[i].spo2 = spo2;
-      g_seen_bands[i].last_seen_ms = now;
-      return;
+  SeenBand* b = nullptr;
+  for (size_t i = 0; i < g_seen_count; i++)
+    if (g_seen_bands[i].id == id) { b = &g_seen_bands[i]; break; }
+  if (!b) {
+    size_t slot = g_seen_count;
+    if (g_seen_count < MAX_SEEN_BANDS) g_seen_count++;
+    else {
+      slot = 0;   // replace the oldest
+      for (size_t i = 1; i < MAX_SEEN_BANDS; i++)
+        if (now - g_seen_bands[i].last_seen_ms > now - g_seen_bands[slot].last_seen_ms) slot = i;
     }
+    b = &g_seen_bands[slot];
+    *b = SeenBand{};
+    b->id = id;
+    b->rssi = RSSI_NONE;
   }
-  if (g_seen_count < MAX_SEEN_BANDS) {
-    g_seen_bands[g_seen_count++] = {id, rssi, hr, spo2, now};
-  } else {
-    // Replace oldest
-    size_t oldest = 0;
-    for (size_t i = 1; i < MAX_SEEN_BANDS; i++) {
-      if (now - g_seen_bands[i].last_seen_ms > now - g_seen_bands[oldest].last_seen_ms) {
-        oldest = i;
-      }
-    }
-    g_seen_bands[oldest] = {id, rssi, hr, spo2, now};
+  b->hr = hr;
+  b->spo2 = spo2;
+  b->last_seen_ms = now;
+  if (rssi == RSSI_NONE) return;
+
+  // Median of the last few heartbeats (~10 s apart) evens out fading; start
+  // over after a long silence so an old reading doesn't drag a fresh one.
+  if (b->n_samples && now - b->last_heard_ms > 30000) b->n_samples = 0;
+  if (b->n_samples == SEEN_RSSI_SAMPLES) {
+    memmove(b->samples, b->samples + 1, (SEEN_RSSI_SAMPLES - 1) * sizeof(int16_t));
+    b->n_samples--;
   }
+  b->samples[b->n_samples++] = rssi;
+  b->rssi = median_rssi(b->samples, b->n_samples);
+  b->last_heard_ms = now;
 }
 
 static void print_banner() {
@@ -304,15 +332,16 @@ static void process_lora_packet() {
     ResQ::SOSPacket pkt;
     memcpy(&pkt, buf, sizeof(pkt));
     
-    int16_t current_rssi = LoRa.packetRssi();
-    update_seen_band(pkt.device_id, current_rssi, pkt.heart_rate, pkt.spo2);
+    int16_t current_rssi = effective_rssi(LoRa.packetRssi(), LoRa.packetSnr());
+    update_seen_band(pkt.device_id, current_rssi, pkt.heart_rate, shown_spo2(pkt.spo2));
+    cal_feed(pkt.device_id, current_rssi);
     
     // Auto lock-on to the first seen band or update if it's the current target
     if (g_target_id == 0 || g_target_id == pkt.device_id) {
       g_target_id   = pkt.device_id;
       g_last_rssi   = current_rssi;
       g_last_hr     = pkt.heart_rate;
-      g_last_spo2   = pkt.spo2;
+      g_last_spo2   = shown_spo2(pkt.spo2);
       g_last_batt   = pkt.battery_pct;
       g_last_triage = pkt.triage_level;
 
@@ -349,17 +378,17 @@ static void process_lora_packet() {
       // handheld has never heard the band's own heartbeat.
       g_target_id   = pkt.target_band_id;
       g_last_hr     = pkt.heart_rate;
-      g_last_spo2   = pkt.spo2;
+      g_last_spo2   = shown_spo2(pkt.spo2);
       g_last_batt   = pkt.battery_pct;
       g_last_triage = pkt.triage_level;
-      if (pkt.best_rssi != -127) g_last_rssi = pkt.best_rssi;
 
       // Feed it into the seen-bands table so the WebUI target list shows the
-      // vitals right away.
-      update_seen_band(pkt.target_band_id, pkt.best_rssi, pkt.heart_rate, pkt.spo2);
+      // vitals right away. best_rssi is what a pillar heard, not this handheld,
+      // so it must not feed the distance estimate.
+      update_seen_band(pkt.target_band_id, RSSI_NONE, pkt.heart_rate, shown_spo2(pkt.spo2));
 
       Serial.printf("[ASSIGNMENT] band=%08X  HR=%u SpO2=%u batt=%u%% triage=%u score=%u\n",
-                    (unsigned)pkt.target_band_id, pkt.heart_rate, pkt.spo2,
+                    (unsigned)pkt.target_band_id, pkt.heart_rate, shown_spo2(pkt.spo2),
                     pkt.battery_pct, pkt.triage_level, pkt.priority_score);
 
       display_lora_sweep(g_target_id, g_last_rssi, g_last_hr, g_last_spo2);
@@ -396,6 +425,7 @@ void setup() {
   print_banner();
   
   // 1. WiFi AP must start first, before any SPI device calls SPI.begin()
+  cal_begin(DEFAULT_RSSI_REF_1M, DEFAULT_PATH_LOSS_N);
   init_web_ui();
   
   // 2. Display (I2C - safe, no SPI conflict)
@@ -511,8 +541,8 @@ void loop() {
     float dist = -1.0f;   // <0 => "Out of Range" on the display
     if (g_target_id != 0) {
       for (size_t i = 0; i < g_seen_count; i++) {
-        if (g_seen_bands[i].id == g_target_id &&
-            (now - g_seen_bands[i].last_seen_ms) < 15000) {
+        if (g_seen_bands[i].id == g_target_id && g_seen_bands[i].n_samples &&
+            (now - g_seen_bands[i].last_heard_ms) < 25000) {
           dist = rssi_to_distance_m(g_seen_bands[i].rssi);
           break;
         }
@@ -525,5 +555,6 @@ void loop() {
   webui_set_bands(g_seen_bands, g_seen_count);
   webui_set_vitals(g_last_hr, g_last_spo2, g_last_batt, g_last_triage);
 
+  cal_tick();
   webui_loop();
 }
